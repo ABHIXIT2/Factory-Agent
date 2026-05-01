@@ -1,0 +1,3 @@
+"""
+Factory Agent — src package
+"""
