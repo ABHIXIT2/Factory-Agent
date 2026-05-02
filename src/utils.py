@@ -1,72 +1,171 @@
 """
-Utilities: date parsing, currency formatting, table rendering for Telegram.
+Utilities: date parsing, currency formatting, table rendering, input validation.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
+from typing import Optional
 import re
-import pytz
 
-TIMEZONE = pytz.timezone("Asia/Kolkata")
+from src.config import TIMEZONE
+
 
 # ============================================================================
 # DATE PARSING
 # ============================================================================
 
-def parse_date_flexible(text: str) -> str:
+class AmbiguousDateError(ValueError):
+    """Raised when a date phrase is ambiguous (e.g. Hindi 'kal' = yesterday OR tomorrow)."""
+
+
+def today_iso() -> str:
+    return datetime.now(TIMEZONE).date().isoformat()
+
+
+def parse_date_flexible(text: str) -> Optional[str]:
     """
-    Parse dates from natural language.
-    Returns ISO format: YYYY-MM-DD
-    Supports: "आज" (today), "कल" (ambiguous, needs clarification), etc.
+    Parse natural-language dates to ISO YYYY-MM-DD.
+
+    Returns None if unparseable. Raises AmbiguousDateError when the phrase
+    is genuinely ambiguous so the caller can ask for clarification.
     """
+    if not text:
+        return None
     text = text.lower().strip()
     today = datetime.now(TIMEZONE).date()
 
-    # Hindi keywords
-    if text in ["aaj", "आज"]:
+    if text in ("aaj", "आज", "today"):
         return today.isoformat()
-    if text in ["kal", "कल"]:
-        # Ambiguous! Return with flag for clarification
-        return "AMBIGUOUS_KAL"
-    if text in ["parso", "परसों"]:
-        return (today + timedelta(days=2)).isoformat()
-    if text in ["kal ho gaya", "कल हो गया"]:
+    if text in ("yesterday",):
         return (today - timedelta(days=1)).isoformat()
-
-    # Try ISO format (YYYY-MM-DD)
-    if re.match(r"\d{4}-\d{2}-\d{2}", text):
-        return text
-
-    # Try DD/MM/YYYY or DD-MM-YYYY
-    match = re.match(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", text)
-    if match:
-        day, month, year = match.groups()
-        try:
-            dt = datetime(int(year), int(month), int(day))
-            return dt.date().isoformat()
-        except ValueError:
-            pass
-
-    # Try relative: "today", "yesterday", "tomorrow"
-    if text in ["today", "aaj"]:
-        return today.isoformat()
-    if text in ["yesterday", "kal", "कल"]:
-        return (today - timedelta(days=1)).isoformat()
-    if text in ["tomorrow"]:
+    if text in ("tomorrow",):
         return (today + timedelta(days=1)).isoformat()
+    if text in ("kal", "कल"):
+        raise AmbiguousDateError("'kal' is ambiguous — could mean yesterday or tomorrow")
+    if text in ("parso", "परसों"):
+        raise AmbiguousDateError("'parso' is ambiguous — could mean day-before or day-after")
 
-    # Default to today if unclear
-    return today.isoformat()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            return None
+
+    m = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", text)
+    if m:
+        d, mo, y = (int(x) for x in m.groups())
+        try:
+            return date(y, mo, d).isoformat()
+        except ValueError:
+            return None
+
+    return None
 
 
 # ============================================================================
-# CURRENCY FORMATTING
+# SECRET REDACTION (never expose GROQ_API_KEY, TELEGRAM_BOT_TOKEN in logs)
 # ============================================================================
 
-def format_amount(amount: float) -> str:
-    """Format amount as ₹X,XXX.XX"""
+def redact_secrets(text: str) -> str:
+    """Redact common secret patterns from error messages before logging."""
+    if not isinstance(text, str):
+        return text
+    # Redact Telegram bot tokens: digits:alphanumeric
+    text = re.sub(r"\d{7,}:[A-Za-z0-9_-]{20,}", "[REDACTED_TOKEN]", text)
+    # Redact API keys (common pattern: sk-* or gsk-* or similar)
+    text = re.sub(r"(sk-[A-Za-z0-9]{20,}|gsk-[A-Za-z0-9]{20,})", "[REDACTED_KEY]", text)
+    # Redact Supabase URLs (project-specific)
+    text = re.sub(r"(https?://[a-z0-9]+-[a-z0-9]+\.supabase\.co)", "[REDACTED_URL]", text)
+    return text
+
+
+# ============================================================================
+# VALIDATION HELPERS (used by tools.py before DB writes)
+# ============================================================================
+
+_FORBIDDEN_NAME_RE = re.compile(r"[\x00-\x1f\x7f%]")
+
+
+def validate_iso_date(value: str, field: str = "date") -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string in YYYY-MM-DD format")
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"{field} must be ISO YYYY-MM-DD (got {value!r})") from exc
+
+
+def validate_positive_number(value, field: str, *, allow_zero: bool = False) -> float:
+    try:
+        n = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a number (got {value!r})") from exc
+    if n != n or n in (float("inf"), float("-inf")):
+        raise ValueError(f"{field} must be finite")
+    if allow_zero:
+        if n < 0:
+            raise ValueError(f"{field} must be >= 0 (got {n})")
+    else:
+        if n <= 0:
+            raise ValueError(f"{field} must be > 0 (got {n})")
+    return n
+
+
+def validate_positive_int(value, field: str, *, allow_zero: bool = False) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be an integer (got {value!r})") from exc
+    if allow_zero:
+        if n < 0:
+            raise ValueError(f"{field} must be >= 0 (got {n})")
+    else:
+        if n <= 0:
+            raise ValueError(f"{field} must be > 0 (got {n})")
+    return n
+
+
+def validate_enum(value, allowed, field: str) -> str:
+    if value not in allowed:
+        raise ValueError(f"{field} must be one of {sorted(allowed)} (got {value!r})")
+    return value
+
+
+def sanitize_name_fragment(value: str) -> str:
+    """Trim, length-cap, and reject names with control chars or % wildcards."""
+    if not isinstance(value, str):
+        raise ValueError("name_fragment must be a string")
+    v = value.strip()
+    if not v:
+        raise ValueError("name_fragment must be non-empty")
+    if len(v) > 100:
+        raise ValueError("name_fragment too long (max 100 chars)")
+    # Strip Postgres LIKE wildcards
+    v = v.replace("%", "").replace("_", " ")
+    # Reject control chars and any residual %
+    if _FORBIDDEN_NAME_RE.search(v):
+        raise ValueError("name_fragment contains invalid characters")
+    if not v:
+        raise ValueError("name_fragment must be non-empty")
+    return v
+
+
+def truncate(value: Optional[str], max_len: int) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)[:max_len]
+
+
+# ============================================================================
+# CURRENCY / FORMATTING
+# ============================================================================
+
+def format_amount(amount) -> str:
     if amount is None:
         return "₹0.00"
-    return f"₹{amount:,.2f}"
+    try:
+        return f"₹{float(amount):,.2f}"
+    except (TypeError, ValueError):
+        return "₹0.00"
 
 
 # ============================================================================
@@ -74,80 +173,27 @@ def format_amount(amount: float) -> str:
 # ============================================================================
 
 def render_balance_table(balances: list) -> str:
-    """
-    Render list of customer balances as Telegram-friendly text.
-    Input: [{"shop_name": "...", "outstanding_balance": X}, ...]
-    """
     if not balances:
         return "No customers found."
-
     lines = ["🔴 *Outstanding Balances*\n"]
-    total = 0
-
-    for i, row in enumerate(balances[:10], 1):  # Show top 10
+    total = 0.0
+    for i, row in enumerate(balances[:10], 1):
         shop = row.get("shop_name", "Unknown")
-        amount = row.get("outstanding_balance", 0)
-        total += amount
+        amount = row.get("outstanding_balance") or 0
+        total += float(amount)
         lines.append(f"{i}. {shop} — {format_amount(amount)}")
-
     lines.append(f"\n*Total Outstanding: {format_amount(total)}*")
-
     return "\n".join(lines)
 
 
 def render_sales_table(sales: list) -> str:
-    """Render sales records as text."""
     if not sales:
         return "No sales found."
-
     lines = ["📦 *Sales*\n"]
-
-    for row in sales[:5]:  # Show last 5
-        date = row.get("sale_date", "?")
-        qty = row.get("quantity_kg", 0)
-        rate = row.get("rate_per_kg", 0)
-        total = qty * rate
-        lines.append(f"{date}: {qty}kg @ ₹{rate} = {format_amount(total)}")
-
+    for row in sales[:5]:
+        d = row.get("sale_date", "?")
+        qty = row.get("quantity_kg") or 0
+        rate = row.get("rate_per_kg") or 0
+        total = float(qty) * float(rate)
+        lines.append(f"{d}: {qty}kg @ ₹{rate} = {format_amount(total)}")
     return "\n".join(lines)
-
-
-# ============================================================================
-# PARSING STRUCTURED DATA FROM LLM
-# ============================================================================
-
-def extract_amount(text: str) -> float:
-    """Extract numeric amount from text."""
-    # Find number with optional decimals
-    match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
-    if match:
-        try:
-            return float(match.group())
-        except ValueError:
-            pass
-    return 0.0
-
-
-def extract_quantity(text: str) -> float:
-    """Extract quantity (kg) from text."""
-    # Handle "50 kilo", "50kg", "पचास", etc.
-    text = text.lower()
-
-    # Direct number
-    match = re.search(r"(\d+\.?\d*)\s*(?:kg|kilo|किलो)", text)
-    if match:
-        return float(match.group(1))
-
-    # Try Hindi numerals (basic)
-    hindi_nums = {
-        "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पाँच": 5,
-        "छह": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10,
-        "बीस": 20, "तीस": 30, "चालीस": 40, "पचास": 50,
-        "साठ": 60, "सत्तर": 70, "अस्सी": 80, "नब्बे": 90
-    }
-
-    for hindi, num in hindi_nums.items():
-        if hindi in text:
-            return float(num)
-
-    return 0.0

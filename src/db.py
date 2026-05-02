@@ -1,423 +1,481 @@
 """
 Database layer: all Supabase/PostgreSQL operations.
-Uses supabase-py client for safe, async-friendly database access.
+
+Sync supabase-py client wrapped in retries; agent layer offloads calls to a
+thread pool via asyncio.to_thread so the event loop stays unblocked.
 """
 
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import json
+
 from supabase import create_client, Client
-from src.config import SUPABASE_URL, SUPABASE_KEY
+from tenacity import (
+    retry, stop_after_attempt, wait_exponential, retry_if_exception_type,
+)
+
+from src.config import (
+    SUPABASE_URL, SUPABASE_KEY, MAX_BALANCES_RETURNED, MAX_SALES_RETURNED,
+)
 
 logger = logging.getLogger(__name__)
 
-# Global Supabase client
+
+class DatabaseError(Exception):
+    """Generic, user-safe DB error. Real details are logged, not surfaced."""
+
+
+# ----------------------------------------------------------------------------
+# Client (lazy, thread-safe)
+# ----------------------------------------------------------------------------
+
 _db: Optional[Client] = None
+_db_lock = threading.Lock()
 
 
 def get_db() -> Client:
-    """Get or initialize Supabase client."""
     global _db
     if _db is None:
-        _db = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("✅ Connected to Supabase")
+        with _db_lock:
+            if _db is None:
+                _db = create_client(SUPABASE_URL, SUPABASE_KEY)
+                logger.info("Connected to Supabase")
     return _db
 
 
-def init_user(user_id: int, username: str = None, first_name: str = None) -> None:
-    """Register or update a Telegram user."""
+def reset_db() -> None:
+    """Drop the cached client (used on connection errors before retry)."""
+    global _db
+    with _db_lock:
+        _db = None
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# Retry transient network/connection errors; let logical errors bubble up.
+_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.3, min=0.3, max=3.0),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+)
+
+
+# ----------------------------------------------------------------------------
+# USERS
+# ----------------------------------------------------------------------------
+
+@_retry
+def init_user(user_id: int, username: Optional[str] = None,
+              first_name: Optional[str] = None) -> None:
+    """Upsert a Telegram user row. Idempotent — safe on every /start."""
     db = get_db()
-    try:
-        db.table("users").upsert({
-            "user_id": user_id,
-            "username": username,
-            "first_name": first_name,
-            "created_at": datetime.utcnow().isoformat()
-        }).execute()
-        logger.info(f"✅ User {user_id} initialized")
-    except Exception as e:
-        logger.error(f"❌ Error initializing user {user_id}: {e}")
-        raise
+    db.table("users").upsert({
+        "user_id": user_id,
+        "username": username,
+        "first_name": first_name,
+        "created_at": _utcnow_iso(),
+    }).execute()
+    logger.info("User %s initialized", user_id)
 
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # CUSTOMERS
-# ============================================================================
+# ----------------------------------------------------------------------------
 
-def search_customer(name_fragment: str, user_id: int = None) -> List[Dict]:
-    """
-    Fuzzy search for customers by shop_name_normalized.
-    Returns list of [{id, shop_name, score}, ...] sorted by relevance.
-    """
+@_retry
+def search_customer(name_fragment: str) -> List[Dict[str, Any]]:
+    """Fuzzy search by normalized shop name. Caller must pre-sanitize input."""
     db = get_db()
-    try:
-        # PostgreSQL similarity search using pg_trgm
-        # For MVP, simple LIKE search; upgrade to similarity() if needed
-        query = (
-            db.table("customers")
-            .select("id, shop_name, shop_name_normalized")
-            .ilike("shop_name_normalized", f"%{name_fragment.lower()}%")
-            .execute()
-        )
-        results = [
-            {"id": row["id"], "shop_name": row["shop_name"], "score": 0.9}
-            for row in query.data
-        ]
-        logger.debug(f"Found {len(results)} customers matching '{name_fragment}'")
-        return results
-    except Exception as e:
-        logger.error(f"❌ Error searching customers: {e}")
-        return []
+    needle = name_fragment.lower().strip()
+    query = (
+        db.table("customers")
+        .select("id, shop_name, shop_name_normalized")
+        .ilike("shop_name_normalized", f"%{needle}%")
+        .eq("is_deleted", False)
+        .limit(20)
+        .execute()
+    )
+    results = [
+        {"id": row["id"], "shop_name": row["shop_name"], "score": 0.9}
+        for row in (query.data or [])
+    ]
+    logger.debug("search_customer(%r) -> %d hits", name_fragment, len(results))
+    return results
 
 
+@_retry
 def create_customer(
     shop_name: str,
-    owner_name: str = None,
-    owner_phone: str = None,
-    address: str = None,
+    owner_name: Optional[str] = None,
+    owner_phone: Optional[str] = None,
+    address: Optional[str] = None,
     credit_limit: float = 0,
-    user_id: int = None
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Create a new customer."""
+    """Insert a new customer row; returns {success, customer_id}."""
     db = get_db()
-    try:
-        result = db.table("customers").insert({
-            "shop_name": shop_name,
-            "shop_name_normalized": shop_name.lower().strip(),
-            "owner_name": owner_name,
-            "owner_phone": owner_phone,
-            "address": address,
-            "credit_limit": credit_limit,
-            "created_by": user_id
-        }).execute()
-
-        customer_id = result.data[0]["id"]
-        logger.info(f"✅ Created customer {customer_id}: {shop_name}")
-        return {"success": True, "customer_id": customer_id}
-    except Exception as e:
-        logger.error(f"❌ Error creating customer: {e}")
-        return {"success": False, "error": str(e)}
+    result = db.table("customers").insert({
+        "shop_name": shop_name,
+        "shop_name_normalized": shop_name.lower().strip(),
+        "owner_name": owner_name,
+        "owner_phone": owner_phone,
+        "address": address,
+        "credit_limit": credit_limit,
+        "created_by": user_id,
+    }).execute()
+    customer_id = result.data[0]["id"]
+    logger.info("Created customer %s: %s", customer_id, shop_name)
+    return {"success": True, "customer_id": customer_id}
 
 
-def list_customers(user_id: int = None) -> List[Dict]:
-    """Get all customers."""
+@_retry
+def list_customers(limit: int = 100) -> List[Dict[str, Any]]:
+    """Return up to `limit` non-deleted customers (id, shop_name, credit_limit)."""
     db = get_db()
-    try:
-        result = db.table("customers").select("id, shop_name, credit_limit").execute()
-        return result.data
-    except Exception as e:
-        logger.error(f"❌ Error listing customers: {e}")
-        return []
+    result = (
+        db.table("customers")
+        .select("id, shop_name, credit_limit")
+        .eq("is_deleted", False)
+        .limit(limit)
+        .execute()
+    )
+    return result.data or []
 
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # SALES
-# ============================================================================
+# ----------------------------------------------------------------------------
 
+@_retry
 def save_sale(
     customer_id: int,
     qty_kg: float,
     rate_per_kg: float,
     sale_date: str,
     payment_status: str,
-    payment_mode: str = None,
-    notes: str = None,
+    payment_mode: Optional[str] = None,
+    notes: Optional[str] = None,
     original_message: str = "",
-    user_id: int = None
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Save a sale and auto-generate credit_ledger entry if credited.
-    Atomic transaction: both inserts succeed or both fail.
-    """
+    """Insert sale, optional credit_ledger row, and audit_log entry."""
     db = get_db()
-    try:
-        # 1. Insert into sales
-        sale_result = db.table("sales").insert({
+    sale_result = db.table("sales").insert({
+        "customer_id": customer_id,
+        "quantity_kg": qty_kg,
+        "rate_per_kg": rate_per_kg,
+        "sale_date": sale_date,
+        "payment_status": payment_status,
+        "payment_mode": payment_mode,
+        "notes": notes,
+        "recorded_by": user_id,
+        "original_message": original_message,
+        "confirmed_at": _utcnow_iso(),
+    }).execute()
+
+    sale_id = sale_result.data[0]["id"]
+    total_bill = qty_kg * rate_per_kg
+
+    if payment_status == "credited":
+        db.table("credit_ledger").insert({
             "customer_id": customer_id,
-            "quantity_kg": qty_kg,
-            "rate_per_kg": rate_per_kg,
-            "sale_date": sale_date,
-            "payment_status": payment_status,
-            "payment_mode": payment_mode,
-            "notes": notes,
+            "sale_id": sale_id,
+            "transaction_date": sale_date,
+            "transaction_type": "sale_credited",
+            "debit_amount": total_bill,
+            "credit_amount": 0,
             "recorded_by": user_id,
-            "original_message": original_message,
-            "confirmed_at": datetime.utcnow().isoformat()
+            "original_message": f"Auto from sale_id={sale_id}",
         }).execute()
 
-        sale_id = sale_result.data[0]["id"]
-        total_bill = qty_kg * rate_per_kg
+    db.table("audit_log").insert({
+        "action_type": "add_sale",
+        "table_affected": "sales",
+        "record_id": sale_id,
+        "user_id": user_id,
+        "original_message": original_message,
+        "extracted_data": json.dumps({
+            "customer_id": customer_id,
+            "qty_kg": qty_kg,
+            "rate_per_kg": rate_per_kg,
+            "total_bill": total_bill,
+            "payment_status": payment_status,
+        }),
+    }).execute()
 
-        # 2. If credited, insert into credit_ledger
-        if payment_status == "credited":
-            db.table("credit_ledger").insert({
-                "customer_id": customer_id,
-                "sale_id": sale_id,
-                "transaction_date": sale_date,
-                "transaction_type": "sale_credited",
-                "debit_amount": total_bill,
-                "credit_amount": 0,
-                "recorded_by": user_id,
-                "original_message": f"Auto from sale_id={sale_id}"
-            }).execute()
-
-        # 3. Log to audit_log
-        db.table("audit_log").insert({
-            "action_type": "add_sale",
-            "table_affected": "sales",
-            "record_id": sale_id,
-            "user_id": user_id,
-            "original_message": original_message,
-            "extracted_data": json.dumps({
-                "customer_id": customer_id,
-                "qty_kg": qty_kg,
-                "rate_per_kg": rate_per_kg,
-                "total_bill": total_bill,
-                "payment_status": payment_status
-            })
-        }).execute()
-
-        logger.info(f"✅ Saved sale {sale_id}: {qty_kg}kg @ ₹{rate_per_kg}")
-        return {"success": True, "sale_id": sale_id}
-
-    except Exception as e:
-        logger.error(f"❌ Error saving sale: {e}")
-        return {"success": False, "error": str(e)}
+    logger.info("Saved sale %s: %skg @ ₹%s", sale_id, qty_kg, rate_per_kg)
+    return {"success": True, "sale_id": sale_id, "total_bill": total_bill}
 
 
+@_retry
 def query_sales(
-    customer_id: int = None,
-    date_from: str = None,
-    date_to: str = None,
-    user_id: int = None
-) -> List[Dict]:
-    """Query sales with optional filters."""
+    customer_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = MAX_SALES_RETURNED,
+) -> List[Dict[str, Any]]:
+    """Return non-deleted sales rows with the customer's shop_name joined in."""
     db = get_db()
-    try:
-        query = db.table("sales").select("*, customers(shop_name)")
-
-        if customer_id:
-            query = query.eq("customer_id", customer_id)
-        if date_from:
-            query = query.gte("sale_date", date_from)
-        if date_to:
-            query = query.lte("sale_date", date_to)
-
-        result = query.order("sale_date", desc=True).execute()
-        return result.data
-    except Exception as e:
-        logger.error(f"❌ Error querying sales: {e}")
-        return []
+    query = db.table("sales").select("*, customers(shop_name)").eq("is_deleted", False)
+    if customer_id:
+        query = query.eq("customer_id", customer_id)
+    if date_from:
+        query = query.gte("sale_date", date_from)
+    if date_to:
+        query = query.lte("sale_date", date_to)
+    result = query.order("sale_date", desc=True).limit(limit).execute()
+    return result.data or []
 
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # CREDIT LEDGER & BALANCES
-# ============================================================================
+# ----------------------------------------------------------------------------
 
+@_retry
 def get_customer_balance(customer_id: int) -> Dict[str, Any]:
-    """Get current outstanding balance for a customer."""
+    """Read from the customer_balance view (already excludes soft-deleted ledger rows)."""
     db = get_db()
-    try:
-        result = db.table("customer_balance").select(
-            "id, shop_name, credit_limit, outstanding_balance"
-        ).eq("id", customer_id).execute()
-
-        if result.data:
-            return result.data[0]
-        return {"shop_name": "Unknown", "outstanding_balance": 0, "credit_limit": 0}
-    except Exception as e:
-        logger.error(f"❌ Error getting customer balance: {e}")
-        return {}
+    result = (
+        db.table("customer_balance")
+        .select("id, shop_name, credit_limit, outstanding_balance")
+        .eq("id", customer_id)
+        .execute()
+    )
+    if result.data:
+        return result.data[0]
+    return {"shop_name": "Unknown", "outstanding_balance": 0, "credit_limit": 0}
 
 
-def get_all_balances(sort_by: str = "outstanding_desc") -> List[Dict]:
-    """Get all customer outstanding balances."""
+@_retry
+def get_all_balances(
+    sort_by: str = "outstanding_desc",
+    limit: int = MAX_BALANCES_RETURNED,
+) -> List[Dict[str, Any]]:
+    """Top-N customers by outstanding balance. `limit` is hard-capped by config."""
     db = get_db()
-    try:
-        query = db.table("customer_balance").select(
-            "id, shop_name, credit_limit, outstanding_balance"
-        )
-
-        if sort_by == "outstanding_desc":
-            query = query.order("outstanding_balance", desc=True)
-        elif sort_by == "outstanding_asc":
-            query = query.order("outstanding_balance", desc=False)
-
-        result = query.execute()
-        return result.data
-    except Exception as e:
-        logger.error(f"❌ Error getting all balances: {e}")
-        return []
+    query = db.table("customer_balance").select(
+        "id, shop_name, credit_limit, outstanding_balance"
+    )
+    if sort_by == "outstanding_desc":
+        query = query.order("outstanding_balance", desc=True)
+    elif sort_by == "outstanding_asc":
+        query = query.order("outstanding_balance", desc=False)
+    result = query.limit(limit).execute()
+    return result.data or []
 
 
+@_retry
 def record_payment(
     customer_id: int,
     amount: float,
     payment_date: str,
-    payment_mode: str = None,
-    notes: str = None,
+    payment_mode: Optional[str] = None,
+    notes: Optional[str] = None,
     original_message: str = "",
-    user_id: int = None
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Record a customer payment."""
+    """Insert a payment row in credit_ledger + audit_log; returns new balance."""
     db = get_db()
-    try:
-        # Insert into credit_ledger
-        db.table("credit_ledger").insert({
+    ledger_result = db.table("credit_ledger").insert({
+        "customer_id": customer_id,
+        "sale_id": None,
+        "transaction_date": payment_date,
+        "transaction_type": "payment_received",
+        "debit_amount": 0,
+        "credit_amount": amount,
+        "payment_mode": payment_mode,
+        "notes": notes,
+        "recorded_by": user_id,
+        "original_message": original_message,
+    }).execute()
+
+    ledger_id = ledger_result.data[0]["id"] if ledger_result.data else None
+
+    db.table("audit_log").insert({
+        "action_type": "add_payment",
+        "table_affected": "credit_ledger",
+        "record_id": ledger_id,
+        "user_id": user_id,
+        "original_message": original_message,
+        "extracted_data": json.dumps({
             "customer_id": customer_id,
-            "sale_id": None,
-            "transaction_date": payment_date,
-            "transaction_type": "payment_received",
-            "debit_amount": 0,
-            "credit_amount": amount,
-            "recorded_by": user_id,
-            "original_message": original_message
-        }).execute()
+            "amount": amount,
+            "payment_date": payment_date,
+        }),
+    }).execute()
 
-        # Log to audit_log
-        db.table("audit_log").insert({
-            "action_type": "add_payment",
-            "table_affected": "credit_ledger",
-            "user_id": user_id,
-            "original_message": original_message,
-            "extracted_data": json.dumps({
-                "customer_id": customer_id,
-                "amount": amount,
-                "payment_date": payment_date
-            })
-        }).execute()
-
-        # Get new balance
-        new_balance = get_customer_balance(customer_id)
-
-        logger.info(f"✅ Payment recorded: ₹{amount} from customer {customer_id}")
-        return {"success": True, "new_balance": new_balance.get("outstanding_balance", 0)}
-
-    except Exception as e:
-        logger.error(f"❌ Error recording payment: {e}")
-        return {"success": False, "error": str(e)}
+    new_balance = get_customer_balance(customer_id)
+    logger.info("Payment recorded: ₹%s from customer %s", amount, customer_id)
+    return {
+        "success": True,
+        "ledger_id": ledger_id,
+        "new_balance": new_balance.get("outstanding_balance", 0),
+    }
 
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # PRODUCTION LOG
-# ============================================================================
+# ----------------------------------------------------------------------------
 
+@_retry
 def save_production(
     prod_date: str,
     total_produced_kg: float,
     total_packets: int,
-    notes: str = None,
+    notes: Optional[str] = None,
     original_message: str = "",
-    user_id: int = None
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Save production log entry."""
     db = get_db()
-    try:
-        result = db.table("production_log").insert({
+    result = db.table("production_log").insert({
+        "prod_date": prod_date,
+        "total_produced_kg": total_produced_kg,
+        "total_packets": total_packets,
+        "batch_notes": notes,
+        "recorded_by": user_id,
+        "original_message": original_message,
+    }).execute()
+    prod_id = result.data[0]["id"]
+
+    db.table("audit_log").insert({
+        "action_type": "add_production",
+        "table_affected": "production_log",
+        "record_id": prod_id,
+        "user_id": user_id,
+        "original_message": original_message,
+        "extracted_data": json.dumps({
             "prod_date": prod_date,
             "total_produced_kg": total_produced_kg,
             "total_packets": total_packets,
-            "batch_notes": notes,
-            "recorded_by": user_id,
-            "original_message": original_message
-        }).execute()
+        }),
+    }).execute()
 
-        prod_id = result.data[0]["id"]
-        logger.info(f"✅ Production log saved: {total_produced_kg}kg, {total_packets} packets")
-        return {"success": True, "id": prod_id}
-
-    except Exception as e:
-        logger.error(f"❌ Error saving production: {e}")
-        return {"success": False, "error": str(e)}
+    logger.info("Production saved: %skg, %s packets", total_produced_kg, total_packets)
+    return {"success": True, "id": prod_id}
 
 
+@_retry
 def query_production(
-    date_from: str = None,
-    date_to: str = None
-) -> List[Dict]:
-    """Query production log."""
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
     db = get_db()
-    try:
-        query = db.table("production_log").select("*")
-
-        if date_from:
-            query = query.gte("prod_date", date_from)
-        if date_to:
-            query = query.lte("prod_date", date_to)
-
-        result = query.order("prod_date", desc=True).execute()
-        return result.data
-    except Exception as e:
-        logger.error(f"❌ Error querying production: {e}")
-        return []
+    query = db.table("production_log").select("*").eq("is_deleted", False)
+    if date_from:
+        query = query.gte("prod_date", date_from)
+    if date_to:
+        query = query.lte("prod_date", date_to)
+    result = query.order("prod_date", desc=True).limit(limit).execute()
+    return result.data or []
 
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # CASH FLOW
-# ============================================================================
+# ----------------------------------------------------------------------------
 
+@_retry
 def save_cash_flow(
     flow_date: str,
     flow_type: str,
     category: str,
     description: str,
     amount: float,
-    party: str = None,
-    payment_mode: str = None,
-    notes: str = None,
+    party: Optional[str] = None,
+    payment_mode: Optional[str] = None,
+    notes: Optional[str] = None,
     original_message: str = "",
-    user_id: int = None
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Save cash flow entry."""
     db = get_db()
-    try:
-        result = db.table("cash_flow").insert({
+    result = db.table("cash_flow").insert({
+        "flow_date": flow_date,
+        "flow_type": flow_type,
+        "category": category,
+        "description": description,
+        "amount": amount,
+        "party": party,
+        "payment_mode": payment_mode,
+        "notes": notes,
+        "recorded_by": user_id,
+        "original_message": original_message,
+    }).execute()
+    cf_id = result.data[0]["id"]
+
+    db.table("audit_log").insert({
+        "action_type": "add_cash_flow",
+        "table_affected": "cash_flow",
+        "record_id": cf_id,
+        "user_id": user_id,
+        "original_message": original_message,
+        "extracted_data": json.dumps({
             "flow_date": flow_date,
             "flow_type": flow_type,
-            "category": category,
-            "description": description,
             "amount": amount,
-            "party": party,
-            "payment_mode": payment_mode,
-            "notes": notes,
-            "recorded_by": user_id,
-            "original_message": original_message
-        }).execute()
+            "category": category,
+        }),
+    }).execute()
 
-        cf_id = result.data[0]["id"]
-        logger.info(f"✅ Cash flow saved: {flow_type} ₹{amount}")
-        return {"success": True, "id": cf_id}
-
-    except Exception as e:
-        logger.error(f"❌ Error saving cash flow: {e}")
-        return {"success": False, "error": str(e)}
+    logger.info("Cash flow saved: %s ₹%s", flow_type, amount)
+    return {"success": True, "id": cf_id}
 
 
+@_retry
 def get_cash_position() -> Dict[str, float]:
-    """Get net cash position."""
     db = get_db()
-    try:
-        result = db.table("cash_position").select("total_in, total_out, net_cash").execute()
-        if result.data:
-            return result.data[0]
-        return {"total_in": 0, "total_out": 0, "net_cash": 0}
-    except Exception as e:
-        logger.error(f"❌ Error getting cash position: {e}")
-        return {}
+    result = db.table("cash_position").select("total_in, total_out, net_cash").execute()
+    if result.data:
+        return result.data[0]
+    return {"total_in": 0, "total_out": 0, "net_cash": 0}
 
 
-# ============================================================================
-# UTILITIES
-# ============================================================================
+# ----------------------------------------------------------------------------
+# SOFT DELETE (per SECURITY.md/SCHEMA.md is_deleted contract)
+# ----------------------------------------------------------------------------
+
+_SOFT_DELETE_TABLES = {"sales", "credit_ledger", "production_log", "cash_flow", "customers"}
+
+
+@_retry
+def soft_delete(table: str, record_id: int, user_id: Optional[int] = None,
+                reason: Optional[str] = None) -> Dict[str, Any]:
+    if table not in _SOFT_DELETE_TABLES:
+        raise ValueError(f"soft_delete not supported for table {table!r}")
+    db = get_db()
+    db.table(table).update({
+        "is_deleted": True,
+        "deleted_at": _utcnow_iso(),
+        "deleted_by": user_id,
+    }).eq("id", record_id).execute()
+
+    db.table("audit_log").insert({
+        "action_type": "soft_delete",
+        "table_affected": table,
+        "record_id": record_id,
+        "user_id": user_id,
+        "original_message": reason or "",
+        "extracted_data": json.dumps({"reason": reason}),
+    }).execute()
+
+    logger.info("Soft-deleted %s id=%s by user %s", table, record_id, user_id)
+    return {"success": True}
+
+
+# ----------------------------------------------------------------------------
+# HEALTH
+# ----------------------------------------------------------------------------
 
 def test_connection() -> bool:
-    """Test database connection."""
     try:
         db = get_db()
-        result = db.table("users").select("count(*)", count="exact").execute()
-        logger.info("✅ Database connection test passed")
+        db.table("users").select("user_id", count="exact").limit(1).execute()
+        logger.info("Database connection test passed")
         return True
-    except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
+    except Exception as exc:
+        logger.error("Database connection failed: %s", exc, exc_info=True)
         return False

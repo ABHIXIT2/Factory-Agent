@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import pytest, pytest_asyncio; print\\(pytest.__version__, pytest_asyncio.__version__\\)\")",
+      "Bash(python -m pytest)"
+    ]
+  }
+}

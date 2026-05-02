@@ -1,6 +1,6 @@
-# Factory Agent — Setup Guide
+# Labbu ❤️ — Setup Guide
 
-Complete all three steps below before running the bot.
+Complete all three steps below before running Labbu.
 
 ---
 
@@ -29,8 +29,8 @@ Complete all three steps below before running the bot.
 1. Open Telegram and search for `@BotFather`
 2. Send `/newbot`
 3. Answer the prompts:
-   - Name: "Factory Agent" (or any name)
-   - Username: "factory_agent_xyz" (must end with `_bot`, e.g., `factory_agent_yourname_bot`)
+   - Name: "Labbu" (or "Labbu ❤️")
+   - Username: "labbu_factory_bot" (must end with `_bot`)
 4. BotFather will give you a token:
    ```
    123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
@@ -83,15 +83,18 @@ The bot is now **listening** for messages on Telegram. 🚀
 
 ---
 
-## Step 6: Test the Bot
+## Step 6: Test Labbu
 
 1. Open Telegram on your phone
-2. Search for the bot username you created (e.g., `@factory_agent_yourname_bot`)
+2. Search for `@labbu_factory_bot`
 3. Tap **Start**
 4. Try sending a message:
+
    ```
-   Sharma ko 50 kg diya 120 rate pe
+   Labbu, Sharma ko 50 kg diya 120 rate pe
    ```
+
+   (Mention Labbu's name to get an extra ❤️)
 
 Expected:
 - Bot shows a **confirmation card** with the parsed details
