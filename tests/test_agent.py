@@ -96,7 +96,7 @@ async def test_write_tool_triggers_confirmation():
 
     assert result.confirmation is not None
     assert result.confirmation.token
-    assert "Sale confirm karo" in result.confirmation.summary
+    assert "confirm kijiye" in result.confirmation.summary
     assert executed == []  # nothing executed yet
 
 

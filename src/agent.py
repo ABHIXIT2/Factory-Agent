@@ -123,12 +123,13 @@ def _summarize_save_sale(args: Dict[str, Any]) -> str:
     rate = args.get("rate_per_kg", 0) or 0
     total = float(qty) * float(rate)
     lines = [
-        "📋 *Sale confirm karo:*",
-        f"Customer ID: `{args.get('customer_id')}`",
-        f"Qty: *{qty} kg* @ ₹{rate}",
-        f"Total: *{format_amount(total)}*",
-        f"Date: {args.get('sale_date')}",
-        f"Payment: {args.get('payment_status')}"
+        "📦 *Sale confirm kijiye:*",
+        "─────────────────",
+        f"Customer: `{args.get('customer_id')}`",
+        f"Qty: *{qty} kg* @ ₹*{rate}/kg*",
+        f"Total: ₹*{format_amount(total)}*",
+        f"Date: `{args.get('sale_date')}`",
+        f"Payment: *{args.get('payment_status')}*"
         + (f" ({args.get('payment_mode')})" if args.get('payment_mode') else ""),
     ]
     if args.get("notes"):
@@ -138,41 +139,47 @@ def _summarize_save_sale(args: Dict[str, Any]) -> str:
 
 def _summarize_record_payment(args: Dict[str, Any]) -> str:
     return "\n".join([
-        "📋 *Payment confirm karo:*",
-        f"Customer ID: `{args.get('customer_id')}`",
-        f"Amount: *{format_amount(args.get('amount', 0))}*",
-        f"Date: {args.get('payment_date')}",
-        f"Mode: {args.get('payment_mode') or 'cash'}",
+        "💳 *Payment confirm kijiye:*",
+        "─────────────────",
+        f"Customer: `{args.get('customer_id')}`",
+        f"Amount: ₹*{format_amount(args.get('amount', 0))}*",
+        f"Date: `{args.get('payment_date')}`",
+        f"Mode: *{args.get('payment_mode') or 'cash'}*",
     ])
 
 
 def _summarize_save_production(args: Dict[str, Any]) -> str:
     return "\n".join([
-        "📋 *Production confirm karo:*",
-        f"Date: {args.get('prod_date')}",
+        "🏭 *Production confirm kijiye:*",
+        "─────────────────",
+        f"Date: `{args.get('prod_date')}`",
         f"Qty: *{args.get('total_produced_kg')} kg*",
-        f"Packets: {args.get('total_packets')}",
+        f"Packets: *{args.get('total_packets')}*",
     ])
 
 
 def _summarize_save_cash_flow(args: Dict[str, Any]) -> str:
+    flow_type = args.get('flow_type', '?').upper()
+    emoji = "💰" if flow_type == "IN" else "💸"
     return "\n".join([
-        f"📋 *Cash {args.get('flow_type', '?').upper()} confirm karo:*",
-        f"Date: {args.get('flow_date')}",
-        f"Amount: *{format_amount(args.get('amount', 0))}*",
-        f"Category: {args.get('category')}",
+        f"{emoji} *Cash {flow_type} confirm kijiye:*",
+        "─────────────────",
+        f"Date: `{args.get('flow_date')}`",
+        f"Amount: ₹*{format_amount(args.get('amount', 0))}*",
+        f"Category: *{args.get('category')}*",
         f"Description: {args.get('description')}",
-        f"Party: {args.get('party') or '-'}",
+        f"Party: {args.get('party') or '–'}",
     ])
 
 
 def _summarize_create_customer(args: Dict[str, Any]) -> str:
     return "\n".join([
-        "📋 *New customer confirm karo:*",
+        "👤 *New customer confirm kijiye:*",
+        "─────────────────",
         f"Shop: *{args.get('shop_name')}*",
-        f"Owner: {args.get('owner_name') or '-'}",
-        f"Phone: {args.get('owner_phone') or '-'}",
-        f"Credit limit: {format_amount(args.get('credit_limit', 0))}",
+        f"Owner: {args.get('owner_name') or '–'}",
+        f"Phone: {args.get('owner_phone') or '–'}",
+        f"Credit limit: ₹*{format_amount(args.get('credit_limit', 0))}*",
     ])
 
 
@@ -190,7 +197,7 @@ def _build_summary(write_calls: List[pending.PendingToolCall]) -> str:
     for call in write_calls:
         fn = _SUMMARIZERS.get(call.name)
         parts.append(fn(call.arguments) if fn else f"📋 {call.name}: {call.arguments}")
-    parts.append("\nReply with the buttons below.")
+    parts.append("\n⬇️ नीचे दिए बटन से confirm kijiye:")
     return "\n\n".join(parts)
 
 
