@@ -5,9 +5,11 @@ User-facing errors are generic — full tracebacks go to logs only.
 """
 
 import asyncio
+import contextlib
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
     MessageHandler, filters,
@@ -16,9 +18,9 @@ from telegram.ext import (
 from src.config import TELEGRAM_BOT_TOKEN
 from src.agent import (
     AgentResult, agent_loop, cancel_pending, clear_history,
-    continue_after_confirmation,
+    continue_after_confirmation, inject_selected_customer,
 )
-from src import db, pending
+from src import db, pending, selection
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +36,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     try:
         await asyncio.to_thread(db.init_user, user_id, user.username or "", first_name)
-    except Exception:
+    except Exception as exc:
         logger.exception("init_user failed for %s", user_id)
+        exc.add_note(f"user_id={user_id}")
 
     welcome_text = (
         "🏭 *Labbu* activated!\n\n"
@@ -92,12 +95,29 @@ def _confirm_keyboard(token: str) -> InlineKeyboardMarkup:
     ]])
 
 
+def _selection_keyboard(token: str, options: list[dict[str, str]]) -> InlineKeyboardMarkup:
+    """Build a keyboard with one button per row for customer selection."""
+    buttons = [
+        [InlineKeyboardButton(f"{i}. {opt['shop_name']}", callback_data=f"sel:{token}:{i-1}")]
+        for i, opt in enumerate(options, 1)
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
 async def _send_agent_result(update: Update, result: AgentResult) -> None:
-    """Send the agent's response, attaching confirmation buttons if present."""
+    """Send the agent's response, attaching confirmation or selection buttons if present."""
     text = result.text
     reply_markup = None
     if result.confirmation is not None:
-        reply_markup = _confirm_keyboard(result.confirmation.token)
+        if getattr(result.confirmation, '_is_selection', False):
+            # This is a customer selection prompt, not a write confirmation
+            sel = selection.peek(result.confirmation.token)
+            if sel:
+                options = [{"shop_name": opt.shop_name} for opt in sel.customer_options]
+                reply_markup = _selection_keyboard(result.confirmation.token, options)
+        else:
+            # Regular write confirmation
+            reply_markup = _confirm_keyboard(result.confirmation.token)
 
     target = update.effective_message
     try:
@@ -107,8 +127,8 @@ async def _send_agent_result(update: Update, result: AgentResult) -> None:
             disable_web_page_preview=True,
             reply_markup=reply_markup,
         )
-    except Exception:
-        logger.exception("Markdown send failed; retrying plain")
+    except Exception as exc:
+        logger.debug("Markdown send failed: %s, retrying plain", exc)
         await target.reply_text(
             text, disable_web_page_preview=True, reply_markup=reply_markup,
         )
@@ -126,10 +146,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     logger.info("msg user=%s len=%s preview=%r", user_id, len(user_message), user_message[:60])
 
-    try:
+    with contextlib.suppress(TelegramError):
         await context.bot.send_chat_action(chat_id=user_id, action="typing")
-    except Exception:
-        pass
 
     try:
         result = await agent_loop(
@@ -150,10 +168,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ----------------------------------------------------------------------------
-# Callback handler for confirmation buttons
+# Callback handler for selection buttons (customer selection)
 # ----------------------------------------------------------------------------
 
-async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle customer selection from fuzzy search results."""
     query = update.callback_query
     user_id = query.from_user.id
 
@@ -161,6 +180,72 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer()
     except Exception:
         pass
+
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "sel":
+        return
+
+    token, index_str = parts[1], parts[2]
+    try:
+        index = int(index_str)
+    except (ValueError, IndexError):
+        return
+
+    sel = selection.pop(token, user_id)
+    if sel is None:
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.edit_message_text(
+                (query.message.text_markdown_v2 or query.message.text or "")
+                + "\n\n⏱️ Selection expired ya already handled."
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=user_id, text="⏱️ Selection expired ya already handled."
+            )
+        return
+
+    # Get selected customer
+    if index < 0 or index >= len(sel.customer_options):
+        await context.bot.send_message(chat_id=user_id, text="❌ Invalid selection.")
+        return
+
+    selected_customer = sel.customer_options[index]
+
+    # Strip buttons immediately
+    with contextlib.suppress(TelegramError):
+        await query.edit_message_reply_markup(reply_markup=None)
+
+    # Inject selected customer into history so LLM uses the correct customer_id
+    inject_selected_customer(user_id, selected_customer.id, selected_customer.shop_name)
+
+    # Re-run the original message — LLM now sees the customer in history
+    try:
+        result = await agent_loop(
+            user_message=sel.original_message,
+            user_id=user_id,
+            username=sel.username,
+            first_name=sel.first_name,
+        )
+        await _send_agent_result(update, result)
+    except Exception:
+        logger.exception("Selection follow-up failed for user %s", user_id)
+        await context.bot.send_message(
+            chat_id=user_id, text="❌ Sorry, something went wrong. Please try again."
+        )
+
+
+# ----------------------------------------------------------------------------
+# Callback handler for confirmation buttons
+# ----------------------------------------------------------------------------
+
+async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    with contextlib.suppress(TelegramError):
+        await query.answer()
 
     data = query.data or ""
     parts = data.split(":", 2)
@@ -177,17 +262,16 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 (query.message.text_markdown_v2 or query.message.text or "")
                 + "\n\n⏱️ Confirmation expired ya already handled."
             )
-        except Exception:
+        except TelegramError as exc:
+            logger.debug("Failed to edit expired-action message: %s", exc)
             await context.bot.send_message(
                 chat_id=user_id, text="⏱️ Confirmation expired ya already handled."
             )
         return
 
     # Strip buttons immediately so the user can't double-click.
-    try:
+    with contextlib.suppress(TelegramError):
         await query.edit_message_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     try:
         if decision == "y":
@@ -201,15 +285,17 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
+    markup = _confirm_keyboard(result.confirmation.token) if result.confirmation else None
     try:
         await context.bot.send_message(
             chat_id=user_id,
             text=result.text,
             parse_mode="Markdown",
             disable_web_page_preview=True,
+            reply_markup=markup,
         )
     except Exception:
-        await context.bot.send_message(chat_id=user_id, text=result.text)
+        await context.bot.send_message(chat_id=user_id, text=result.text, reply_markup=markup)
 
 
 # ----------------------------------------------------------------------------
@@ -228,6 +314,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("clear", clear_command))
 
+    app.add_handler(CallbackQueryHandler(selection_callback, pattern=r"^sel:"))
     app.add_handler(CallbackQueryHandler(confirmation_callback, pattern=r"^cf:(y|n):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 

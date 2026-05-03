@@ -39,7 +39,12 @@ class _StubGroq:
         raise RuntimeError("Groq.chat.completions.create not stubbed in this test")
 
 
+class _RateLimitError(Exception):
+    """Stub for groq.RateLimitError — real class is only available when groq SDK is active."""
+
+
 _groq.Groq = _StubGroq
+_groq.RateLimitError = _RateLimitError
 sys.modules.setdefault("groq", _groq)
 
 # --- supabase stub ----------------------------------------------------------

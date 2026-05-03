@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"import pytest, pytest_asyncio; print\\(pytest.__version__, pytest_asyncio.__version__\\)\")",
-      "Bash(python -m pytest)"
+      "Bash(python -m pytest)",
+      "Bash(python -m py_compile main.py src/agent.py src/config.py src/pending.py src/tools.py src/db.py src/utils.py src/bot.py)",
+      "Bash(python -m pytest -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/test_agent.py::test_groq_rate_limit_falls_back_to_google -v -s)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "WebFetch(domain:core.telegram.org)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(python -m pytest tests/ -xvs)",
+      "Bash(git add *)"
     ]
   }
 }

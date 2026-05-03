@@ -18,7 +18,11 @@ def _make_response(content=None, tool_calls=None):
         content=content,
         tool_calls=tool_calls,
     )
-    return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+    usage = types.SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+    return types.SimpleNamespace(
+        choices=[types.SimpleNamespace(message=msg)],
+        usage=usage,
+    )
 
 
 def _make_tool_call(call_id, name, arguments):
@@ -53,7 +57,7 @@ async def test_read_only_tool_executes_inline():
         _make_response(content="Mil gaya: Sharma General Store"),
     ]
 
-    async def fake_call(messages):
+    async def fake_call(messages, model=None):
         return responses.pop(0)
 
     fake_tool_result = json.dumps({"ok": True, "results": [{"id": 1, "shop_name": "Sharma"}]})
@@ -81,7 +85,7 @@ async def test_write_tool_triggers_confirmation():
         "original_message": "test",
     })
 
-    async def fake_call(_messages):
+    async def fake_call(_messages, model=None):
         return _make_response(tool_calls=[tc])
 
     executed = []
@@ -128,7 +132,7 @@ async def test_continue_after_confirmation_runs_tool():
         executed.append((name, args))
         return json.dumps({"ok": True, "sale_id": 99})
 
-    async def fake_call(_messages):
+    async def fake_call(_messages, model=None):
         return _make_response(content="✅ Sale saved: 50kg.")
 
     with patch.object(agent, "_call_groq", side_effect=fake_call), \
@@ -207,7 +211,7 @@ async def test_bad_tool_args_handled_gracefully():
         _make_response(content="Sorry, retry."),
     ]
 
-    async def fake_call(_m):
+    async def fake_call(_m, model=None):
         return responses.pop(0)
 
     with patch.object(agent, "_call_groq", side_effect=fake_call), \
@@ -217,3 +221,289 @@ async def test_bad_tool_args_handled_gracefully():
     mock_exec.assert_not_called()
     assert result.confirmation is None
     assert result.text == "Sorry, retry."
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.3: safe history trim respects tool_call/tool pairing
+# ---------------------------------------------------------------------------
+
+def test_history_trim_preserves_tool_call_pairing(monkeypatch):
+    """When the naive cut would orphan a tool_call from its tool result,
+    walk forward to a safe boundary."""
+    monkeypatch.setattr(agent, "CONTEXT_WINDOW", 2)  # cap = max(2*4, 20) = 20
+    # Build messages with a long prefix and a worst-case tool batch crossing the cut.
+    msgs = []
+    # Pad with 25 plain user/assistant pairs first.
+    for i in range(25):
+        msgs.append({"role": "user", "content": f"u{i}"})
+        msgs.append({"role": "assistant", "content": f"a{i}"})
+    # Tool batch right at the trim line.
+    msgs.append({
+        "role": "assistant", "content": "",
+        "tool_calls": [{"id": "x1", "type": "function",
+                        "function": {"name": "search_customer", "arguments": "{}"}}],
+    })
+    msgs.append({"role": "tool", "tool_call_id": "x1",
+                 "name": "search_customer", "content": "{}"})
+    # Final user turn must always survive.
+    msgs.append({"role": "user", "content": "final"})
+
+    agent._set_history(99, msgs)
+    persisted = agent._get_history(99)
+    # Final user message survives.
+    assert any(m.get("role") == "user" and m.get("content") == "final" for m in persisted)
+    # No orphaned tool messages: every "tool" has a preceding "assistant" with tool_calls
+    # somewhere earlier (or comes after compacted system summary).
+    for i, m in enumerate(persisted):
+        if m.get("role") == "tool":
+            tcid = m.get("tool_call_id")
+            # The matching assistant must appear before this tool message.
+            assert any(
+                p.get("role") == "assistant"
+                and any(tc.get("id") == tcid for tc in (p.get("tool_calls") or []))
+                for p in persisted[:i]
+            ), f"Tool message {tcid} has no matching assistant tool_call"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.5: summarize-on-trim extracts structural facts
+# ---------------------------------------------------------------------------
+
+def test_compact_dropped_messages_extracts_save_sale_facts():
+    dropped = [
+        {"role": "user", "content": "Sharma ko 50kg de do 120 rate"},
+        {
+            "role": "assistant", "content": "",
+            "tool_calls": [{
+                "id": "tc1", "type": "function",
+                "function": {
+                    "name": "save_sale",
+                    "arguments": json.dumps({
+                        "customer_id": 3, "qty_kg": 50,
+                        "rate_per_kg": 120, "sale_date": "2026-05-03",
+                    }),
+                },
+            }],
+        },
+        {"role": "tool", "tool_call_id": "tc1", "name": "save_sale",
+         "content": json.dumps({"ok": True, "sale_id": 42, "total_bill": 6000})},
+    ]
+    summary = agent._compact_dropped_messages(dropped)
+    assert summary is not None
+    assert summary["role"] == "system"
+    body = summary["content"]
+    assert "Sharma" in body  # user phrase preserved
+    assert "save_sale" in body
+    assert "customer_id=3" in body
+    assert "qty_kg=50" in body
+    assert "sale_id=42" in body
+
+
+def test_compact_dropped_messages_skips_assistant_prose():
+    """Plain assistant text (no tool_calls) carries no structural value — drop it."""
+    dropped = [
+        {"role": "assistant", "content": "Sure thing, here's what I found..."},
+    ]
+    assert agent._compact_dropped_messages(dropped) is None
+
+
+def test_compact_tool_result_shrinks_long_payload(monkeypatch):
+    monkeypatch.setattr(agent, "TOOL_RESULT_HISTORY_MAX_CHARS", 200)
+    huge = json.dumps({"ok": True, "results": [{"id": i, "shop": "x" * 30} for i in range(50)]})
+    compacted = agent._compact_tool_result(huge)
+    parsed = json.loads(compacted)
+    assert parsed["truncated"] is True
+    assert parsed["ok"] is True
+    assert "results_total" in parsed
+    assert parsed["results_total"] == 50
+    assert len(parsed["results"]) == 3
+
+
+def test_compact_tool_result_passes_through_small_payload():
+    small = json.dumps({"ok": True, "sale_id": 1, "total_bill": 100})
+    assert agent._compact_tool_result(small) == small
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.1: templated closing — no LLM call after confirmation
+# ---------------------------------------------------------------------------
+
+async def test_continue_after_confirmation_uses_template_no_llm_call():
+    action = pending.PendingAction(
+        user_id=50,
+        assistant_message={
+            "role": "assistant", "content": "",
+            "tool_calls": [{
+                "id": "tc1", "type": "function",
+                "function": {"name": "save_sale", "arguments": "{}"},
+            }],
+        },
+        tool_calls=[pending.PendingToolCall(
+            id="tc1", name="save_sale",
+            arguments={"customer_id": 1, "qty_kg": 50, "rate_per_kg": 120},
+        )],
+        summary="...",
+        extras={"user_lang": "hi-Latn", "customer_names": {1: "Sharma"}},
+    )
+
+    async def fake_execute(_name, _args):
+        return json.dumps({"ok": True, "sale_id": 99, "total_bill": 6000})
+
+    with patch.object(agent, "_call_groq") as mock_call, \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        result = await agent.continue_after_confirmation(50, action)
+
+    mock_call.assert_not_called()  # the whole point of Phase 2.1
+    assert "Sale saved" in result.text
+    assert "Sharma" in result.text
+    assert "50 kg" in result.text
+    assert "₹6,000" in result.text
+
+
+async def test_continue_after_confirmation_devanagari_template():
+    action = pending.PendingAction(
+        user_id=51,
+        assistant_message={"role": "assistant", "content": "", "tool_calls": []},
+        tool_calls=[pending.PendingToolCall(
+            id="tc1", name="record_payment",
+            arguments={"customer_id": 1, "amount": 5000, "payment_date": "2026-05-03"},
+        )],
+        summary="...",
+        extras={"user_lang": "hi-Deva", "customer_names": {1: "गुप्ता"}},
+    )
+
+    async def fake_execute(_n, _a):
+        return json.dumps({"ok": True, "ledger_id": 7, "new_balance": 1000})
+
+    with patch.object(agent, "_call_groq") as mock_call, \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        result = await agent.continue_after_confirmation(51, action)
+
+    mock_call.assert_not_called()
+    assert "गुप्ता" in result.text
+    assert "नया बकाया" in result.text
+
+
+async def test_continue_after_confirmation_templates_failure():
+    """If the tool returns ok=false, render the error politely."""
+    action = pending.PendingAction(
+        user_id=52,
+        assistant_message={"role": "assistant", "content": "", "tool_calls": []},
+        tool_calls=[pending.PendingToolCall(
+            id="tc1", name="save_sale", arguments={"customer_id": 1, "qty_kg": 1, "rate_per_kg": 1},
+        )],
+        summary="...",
+        extras={"user_lang": "hi-Latn"},
+    )
+
+    async def fake_execute(_n, _a):
+        return json.dumps({"ok": False, "error": "customer_id 1 not found"})
+
+    with patch.object(agent, "_call_groq") as mock_call, \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        result = await agent.continue_after_confirmation(52, action)
+
+    mock_call.assert_not_called()
+    assert "❌" in result.text
+    assert "customer_id 1 not found" in result.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.2: iteration-based model routing
+# ---------------------------------------------------------------------------
+
+async def test_iter1_uses_main_model_iter2_uses_fast(monkeypatch):
+    """Iter 1 must use GROQ_MODEL (70B). Iter 2+ must use GROQ_MODEL_FAST (8B)."""
+    monkeypatch.setattr(agent, "GROQ_MODEL", "test-70b")
+    monkeypatch.setattr(agent, "GROQ_MODEL_FAST", "test-8b")
+    captured_models: list = []
+    responses = [
+        _make_response(tool_calls=[_make_tool_call(
+            "tc1", "search_customer", {"name_fragment": "Sharma"})]),
+        _make_response(content="Mil gaya."),
+    ]
+
+    async def fake_call(_messages, model=None):
+        captured_models.append(model)
+        return responses.pop(0)
+
+    async def fake_execute(_n, _a):
+        return json.dumps({"ok": True, "results": [{"id": 1, "shop_name": "Sharma"}]})
+
+    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        await agent.agent_loop("Sharma kaun?", user_id=70)
+
+    assert captured_models == ["test-70b", "test-8b"]
+
+
+async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
+    """When Google is primary and hits 429, _call_groq falls back to Groq."""
+    import openai
+
+    monkeypatch.setattr(agent, "GOOGLE_FALLBACK_ENABLED", True)
+
+    groq_resp = _make_response(content="Groq reply")
+
+    async def fake_groq(*_args, **_kwargs):
+        return groq_resp
+
+    # Create a mock that is an instance of openai.RateLimitError (subclass)
+    class _MockRateLimitError(openai.RateLimitError):
+        def __init__(self):
+            pass
+
+    async def raise_rate_limit(*_args, **_kwargs):
+        raise _MockRateLimitError()
+
+    monkeypatch.setattr(agent, "_call_google", raise_rate_limit)
+
+    with patch("asyncio.to_thread", new=fake_groq):
+        result = await agent._call_groq([{"role": "user", "content": "hi"}])
+
+    assert result.choices[0].message.content == "Groq reply"
+
+
+async def test_both_providers_exhausted_raises(monkeypatch):
+    """When Google is disabled and Groq hits 429, RateLimitError propagates."""
+    import groq as groq_sdk
+
+    monkeypatch.setattr(agent, "GOOGLE_FALLBACK_ENABLED", False)
+
+    async def raise_rate_limit(*_args, **_kwargs):
+        raise groq_sdk.RateLimitError("mocked rate limit")
+
+    with patch("asyncio.to_thread", new=raise_rate_limit):
+        with pytest.raises(groq_sdk.RateLimitError):
+            await agent._call_groq([{"role": "user", "content": "hi"}])
+
+
+async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
+    """If the fast model returns no choices on iter 2+, retry once on the main model."""
+    monkeypatch.setattr(agent, "GROQ_MODEL", "test-70b")
+    monkeypatch.setattr(agent, "GROQ_MODEL_FAST", "test-8b")
+    bad = types.SimpleNamespace(
+        choices=[],
+        usage=types.SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+    )
+    responses = [
+        _make_response(tool_calls=[_make_tool_call(
+            "tc1", "search_customer", {"name_fragment": "x"})]),
+        bad,                                 # iter 2 on 8B returns empty
+        _make_response(content="Recovered."),  # fallback to 70B succeeds
+    ]
+    captured: list = []
+
+    async def fake_call(_m, model=None):
+        captured.append(model)
+        return responses.pop(0)
+
+    async def fake_execute(_n, _a):
+        return "{}"
+
+    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        result = await agent.agent_loop("hi", user_id=71)
+
+    assert captured == ["test-70b", "test-8b", "test-70b"]
+    assert result.text == "Recovered."

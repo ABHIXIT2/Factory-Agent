@@ -8,7 +8,7 @@ thread pool via asyncio.to_thread so the event loop stays unblocked.
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Any
 import json
 
 from supabase import create_client, Client
@@ -31,7 +31,7 @@ class DatabaseError(Exception):
 # Client (lazy, thread-safe)
 # ----------------------------------------------------------------------------
 
-_db: Optional[Client] = None
+_db: Client | None = None
 _db_lock = threading.Lock()
 
 
@@ -70,8 +70,8 @@ _retry = retry(
 # ----------------------------------------------------------------------------
 
 @_retry
-def init_user(user_id: int, username: Optional[str] = None,
-              first_name: Optional[str] = None) -> None:
+def init_user(user_id: int, username: str | None = None,
+              first_name: str | None = None) -> None:
     """Upsert a Telegram user row. Idempotent — safe on every /start."""
     db = get_db()
     db.table("users").upsert({
@@ -88,7 +88,7 @@ def init_user(user_id: int, username: Optional[str] = None,
 # ----------------------------------------------------------------------------
 
 @_retry
-def search_customer(name_fragment: str) -> List[Dict[str, Any]]:
+def search_customer(name_fragment: str) -> list[dict[str, Any]]:
     """Fuzzy search by normalized shop name. Caller must pre-sanitize input."""
     db = get_db()
     needle = name_fragment.lower().strip()
@@ -111,12 +111,12 @@ def search_customer(name_fragment: str) -> List[Dict[str, Any]]:
 @_retry
 def create_customer(
     shop_name: str,
-    owner_name: Optional[str] = None,
-    owner_phone: Optional[str] = None,
-    address: Optional[str] = None,
+    owner_name: str | None = None,
+    owner_phone: str | None = None,
+    address: str | None = None,
     credit_limit: float = 0,
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    user_id: int | None = None,
+) -> dict[str, Any]:
     """Insert a new customer row; returns {success, customer_id}."""
     db = get_db()
     result = db.table("customers").insert({
@@ -130,11 +130,11 @@ def create_customer(
     }).execute()
     customer_id = result.data[0]["id"]
     logger.info("Created customer %s: %s", customer_id, shop_name)
-    return {"success": True, "customer_id": customer_id}
+    return {"success": True, "customer_id": customer_id, "shop_name": shop_name}
 
 
 @_retry
-def list_customers(limit: int = 100) -> List[Dict[str, Any]]:
+def list_customers(limit: int = 100) -> list[dict[str, Any]]:
     """Return up to `limit` non-deleted customers (id, shop_name, credit_limit)."""
     db = get_db()
     result = (
@@ -158,11 +158,11 @@ def save_sale(
     rate_per_kg: float,
     sale_date: str,
     payment_status: str,
-    payment_mode: Optional[str] = None,
-    notes: Optional[str] = None,
+    payment_mode: str | None = None,
+    notes: str | None = None,
     original_message: str = "",
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    user_id: int | None = None,
+) -> dict[str, Any]:
     """Insert sale, optional credit_ledger row, and audit_log entry."""
     db = get_db()
     sale_result = db.table("sales").insert({
@@ -214,11 +214,11 @@ def save_sale(
 
 @_retry
 def query_sales(
-    customer_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    customer_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     limit: int = MAX_SALES_RETURNED,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return non-deleted sales rows with the customer's shop_name joined in."""
     db = get_db()
     query = db.table("sales").select("*, customers(shop_name)").eq("is_deleted", False)
@@ -237,7 +237,7 @@ def query_sales(
 # ----------------------------------------------------------------------------
 
 @_retry
-def get_customer_balance(customer_id: int) -> Dict[str, Any]:
+def get_customer_balance(customer_id: int) -> dict[str, Any]:
     """Read from the customer_balance view (already excludes soft-deleted ledger rows)."""
     db = get_db()
     result = (
@@ -255,7 +255,7 @@ def get_customer_balance(customer_id: int) -> Dict[str, Any]:
 def get_all_balances(
     sort_by: str = "outstanding_desc",
     limit: int = MAX_BALANCES_RETURNED,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Top-N customers by outstanding balance. `limit` is hard-capped by config."""
     db = get_db()
     query = db.table("customer_balance").select(
@@ -274,11 +274,11 @@ def record_payment(
     customer_id: int,
     amount: float,
     payment_date: str,
-    payment_mode: Optional[str] = None,
-    notes: Optional[str] = None,
+    payment_mode: str | None = None,
+    notes: str | None = None,
     original_message: str = "",
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    user_id: int | None = None,
+) -> dict[str, Any]:
     """Insert a payment row in credit_ledger + audit_log; returns new balance."""
     db = get_db()
     ledger_result = db.table("credit_ledger").insert({
@@ -327,10 +327,10 @@ def save_production(
     prod_date: str,
     total_produced_kg: float,
     total_packets: int,
-    notes: Optional[str] = None,
+    notes: str | None = None,
     original_message: str = "",
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    user_id: int | None = None,
+) -> dict[str, Any]:
     db = get_db()
     result = db.table("production_log").insert({
         "prod_date": prod_date,
@@ -361,10 +361,10 @@ def save_production(
 
 @_retry
 def query_production(
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     limit: int = 100,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     db = get_db()
     query = db.table("production_log").select("*").eq("is_deleted", False)
     if date_from:
@@ -386,12 +386,12 @@ def save_cash_flow(
     category: str,
     description: str,
     amount: float,
-    party: Optional[str] = None,
-    payment_mode: Optional[str] = None,
-    notes: Optional[str] = None,
+    party: str | None = None,
+    payment_mode: str | None = None,
+    notes: str | None = None,
     original_message: str = "",
-    user_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    user_id: int | None = None,
+) -> dict[str, Any]:
     db = get_db()
     result = db.table("cash_flow").insert({
         "flow_date": flow_date,
@@ -426,7 +426,7 @@ def save_cash_flow(
 
 
 @_retry
-def get_cash_position() -> Dict[str, float]:
+def get_cash_position() -> dict[str, float]:
     db = get_db()
     result = db.table("cash_position").select("total_in, total_out, net_cash").execute()
     if result.data:
@@ -442,8 +442,8 @@ _SOFT_DELETE_TABLES = {"sales", "credit_ledger", "production_log", "cash_flow", 
 
 
 @_retry
-def soft_delete(table: str, record_id: int, user_id: Optional[int] = None,
-                reason: Optional[str] = None) -> Dict[str, Any]:
+def soft_delete(table: str, record_id: int, user_id: int | None = None,
+                reason: str | None = None) -> dict[str, Any]:
     if table not in _SOFT_DELETE_TABLES:
         raise ValueError(f"soft_delete not supported for table {table!r}")
     db = get_db()

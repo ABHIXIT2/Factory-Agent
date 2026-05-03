@@ -13,10 +13,31 @@ import sys
 from src.bot import build_app
 from src import db
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+_ANSI = {
+    "DEBUG":    "\033[2m",
+    "WARNING":  "\033[1;33m",
+    "ERROR":    "\033[1;31m",
+    "CRITICAL": "\033[1;35m",
+}
+_RESET = "\033[0m"
+
+
+class _ColoredFormatter(logging.Formatter):
+    _tty = sys.stderr.isatty()
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        if not self._tty:
+            return line
+        code = _ANSI.get(record.levelname)
+        return f"{code}{line}{_RESET}" if code else line
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_ColoredFormatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 
 # httpx logs full URLs (which contain the bot token) at INFO. Mute it.
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -25,7 +46,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def _stop_signals():
+def _stop_signals() -> tuple[int, ...] | None:
     """
     POSIX has SIGINT + SIGTERM; Windows asyncio loops don't implement
     add_signal_handler for SIGTERM, so PTB warns and falls back. On Windows

@@ -3,7 +3,7 @@ Utilities: date parsing, currency formatting, table rendering, input validation.
 """
 
 from datetime import datetime, date, timedelta
-from typing import Optional
+from typing import Any
 import re
 
 from src.config import TIMEZONE
@@ -21,7 +21,7 @@ def today_iso() -> str:
     return datetime.now(TIMEZONE).date().isoformat()
 
 
-def parse_date_flexible(text: str) -> Optional[str]:
+def parse_date_flexible(text: str) -> str | None:
     """
     Parse natural-language dates to ISO YYYY-MM-DD.
 
@@ -94,7 +94,7 @@ def validate_iso_date(value: str, field: str = "date") -> str:
         raise ValueError(f"{field} must be ISO YYYY-MM-DD (got {value!r})") from exc
 
 
-def validate_positive_number(value, field: str, *, allow_zero: bool = False) -> float:
+def validate_positive_number(value: object, field: str, *, allow_zero: bool = False) -> float:
     try:
         n = float(value)
     except (TypeError, ValueError) as exc:
@@ -110,7 +110,7 @@ def validate_positive_number(value, field: str, *, allow_zero: bool = False) -> 
     return n
 
 
-def validate_positive_int(value, field: str, *, allow_zero: bool = False) -> int:
+def validate_positive_int(value: object, field: str, *, allow_zero: bool = False) -> int:
     try:
         n = int(value)
     except (TypeError, ValueError) as exc:
@@ -124,7 +124,7 @@ def validate_positive_int(value, field: str, *, allow_zero: bool = False) -> int
     return n
 
 
-def validate_enum(value, allowed, field: str) -> str:
+def validate_enum(value: str, allowed: set[str], field: str) -> str:
     if value not in allowed:
         raise ValueError(f"{field} must be one of {sorted(allowed)} (got {value!r})")
     return value
@@ -149,7 +149,7 @@ def sanitize_name_fragment(value: str) -> str:
     return v
 
 
-def truncate(value: Optional[str], max_len: int) -> Optional[str]:
+def truncate(value: str | None, max_len: int) -> str | None:
     if value is None:
         return None
     return str(value)[:max_len]
@@ -168,11 +168,24 @@ def format_amount(amount) -> str:
         return "₹0.00"
 
 
+# Devanagari script range covers Hindi, Marathi, Sanskrit etc.
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+
+
+def detect_user_lang(text: str | None) -> str:
+    """Return 'hi-Deva' if the text contains any Devanagari character,
+    else 'hi-Latn' (covers Hinglish + plain English; both render fine in
+    Roman-script templates)."""
+    if not text:
+        return "hi-Latn"
+    return "hi-Deva" if _DEVANAGARI_RE.search(text) else "hi-Latn"
+
+
 # ============================================================================
 # TABLE RENDERING FOR TELEGRAM
 # ============================================================================
 
-def render_balance_table(balances: list) -> str:
+def render_balance_table(balances: list[dict[str, Any]]) -> str:
     if not balances:
         return "No customers found."
     lines = ["🔴 *Outstanding Balances*\n"]
@@ -186,7 +199,7 @@ def render_balance_table(balances: list) -> str:
     return "\n".join(lines)
 
 
-def render_sales_table(sales: list) -> str:
+def render_sales_table(sales: list[dict[str, Any]]) -> str:
     if not sales:
         return "No sales found."
     lines = ["📦 *Sales*\n"]

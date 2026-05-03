@@ -6,6 +6,7 @@ from src.utils import (
     AmbiguousDateError, format_amount, parse_date_flexible,
     sanitize_name_fragment, truncate, validate_enum, validate_iso_date,
     validate_positive_int, validate_positive_number, redact_secrets,
+    detect_user_lang,
 )
 
 
@@ -153,3 +154,27 @@ def test_redact_secrets_supabase_url():
 def test_redact_secrets_leaves_normal_text():
     text = "Normal error message with no secrets"
     assert redact_secrets(text) == text
+
+
+# ---------------- detect_user_lang ----------------
+
+def test_detect_user_lang_devanagari():
+    assert detect_user_lang("शर्मा को 50 किलो दे दो") == "hi-Deva"
+
+
+def test_detect_user_lang_hinglish_roman():
+    assert detect_user_lang("Sharma ko 50kg de do") == "hi-Latn"
+
+
+def test_detect_user_lang_english():
+    assert detect_user_lang("Show me the balances") == "hi-Latn"
+
+
+def test_detect_user_lang_empty_falls_back_to_latn():
+    assert detect_user_lang("") == "hi-Latn"
+    assert detect_user_lang(None) == "hi-Latn"
+
+
+def test_detect_user_lang_mixed_picks_devanagari():
+    # Even one Devanagari char tips the decision.
+    assert detect_user_lang("Sharma को 50kg de do") == "hi-Deva"

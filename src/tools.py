@@ -8,8 +8,15 @@ On validation/DB error, returns {"ok": false, "error": "<safe message>"}.
 
 import logging
 import json
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any
+from collections.abc import Awaitable, Callable
 import asyncio
+
+try:
+    from rapidfuzz import process as _fuzz_process, fuzz as _fuzz
+    _RAPIDFUZZ = True
+except ImportError:
+    _RAPIDFUZZ = False
 
 from src import db
 from src.utils import (
@@ -26,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Async dispatch
 # ----------------------------------------------------------------------------
 
-async def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> str:
+async def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
     """
     Execute a tool by name. Runs blocking DB work in a thread pool so it
     doesn't stall the asyncio event loop.
@@ -69,6 +76,37 @@ def _to_thread(fn: Callable, *args, **kwargs) -> Awaitable:
 async def _search_customer(d: Dict) -> str:
     name = sanitize_name_fragment(d.get("name_fragment", ""))
     results = await _to_thread(db.search_customer, name)
+
+    # Fuzzy re-rank results if rapidfuzz is available
+    if _RAPIDFUZZ and len(results) > 1:
+        scored = _fuzz_process.extract(
+            name,
+            [r["shop_name"] for r in results],
+            scorer=_fuzz.token_set_ratio,
+            limit=5,
+            score_cutoff=60,
+        )
+        score_map = {s[0]: s[1] for s in scored}
+        results = [r for r in results if r["shop_name"] in score_map]
+        results.sort(key=lambda r: score_map.get(r["shop_name"], 0), reverse=True)
+
+    # Check if we have an ambiguous match (multiple close results)
+    if len(results) > 1:
+        top_score = score_map.get(results[0]["shop_name"], 0) if _RAPIDFUZZ else 100
+        next_score = score_map.get(results[1]["shop_name"], 0) if _RAPIDFUZZ else 100
+        # If top match is NOT isolated (>=95% and next <90%), flag for UI selection
+        is_isolated = top_score >= 95 and next_score < 90
+        if not is_isolated:
+            # Return flag for bot to show selection UI instead of LLM reasoning
+            return _ok(
+                selection_required=True,
+                customer_options=[
+                    {"id": r["id"], "shop_name": r["shop_name"]}
+                    for r in results[:5]
+                    if r.get("shop_name")  # filter blank names
+                ],
+            )
+
     return _ok(results=results, count=len(results))
 
 
@@ -251,7 +289,7 @@ async def _get_cash_position(_d: Dict) -> str:
     return _ok(**position)
 
 
-_TOOLS: Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]] = {
+_TOOLS: dict[str, Callable[[dict[str, Any]], Awaitable[str]]] = {
     "search_customer": _search_customer,
     "create_customer": _create_customer,
     "save_sale": _save_sale,
