@@ -27,12 +27,10 @@ MEMORY SAFETY
 
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass, field
-from threading import Lock
 from typing import Any
 
-from cachetools import TTLCache
+from src.token_store import TokenStore
 
 # 30-min TTL is generous for a Telegram selection card.
 _SELECTION_TTL_SECONDS = 1800
@@ -57,39 +55,24 @@ class PendingSelection:
     extras: dict[str, Any] = field(default_factory=dict)
 
 
-_store: TTLCache = TTLCache(maxsize=_SELECTION_MAX, ttl=_SELECTION_TTL_SECONDS)
-_lock = Lock()
+_store: TokenStore = TokenStore(ttl=_SELECTION_TTL_SECONDS, maxsize=_SELECTION_MAX)
 
 
 def put(selection: PendingSelection) -> str:
     """Store a selection prompt and return an opaque token."""
-    token = secrets.token_urlsafe(12)
-    with _lock:
-        _store[token] = selection
-    return token
+    return _store.put(selection)
 
 
 def pop(token: str, user_id: int) -> PendingSelection | None:
     """Atomically fetch+remove. Validates user_id to prevent token replay."""
-    with _lock:
-        selection = _store.pop(token, None)
-    if selection is None:
-        return None
-    if selection.user_id != user_id:
-        return None
-    return selection
+    return _store.pop(token, user_id)
 
 
 def peek(token: str) -> PendingSelection | None:
     """Non-destructive read (for debugging/testing)."""
-    with _lock:
-        return _store.get(token)
+    return _store.peek(token)
 
 
 def clear_user(user_id: int) -> int:
     """Remove all pending selections for a user. Returns count removed."""
-    with _lock:
-        tokens = [t for t, s in _store.items() if s.user_id == user_id]
-        for t in tokens:
-            _store.pop(t, None)
-    return len(tokens)
+    return _store.clear_user(user_id)

@@ -167,9 +167,25 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
 
 
-# ----------------------------------------------------------------------------
+async def _handle_expired_token(
+	query: CallbackQuery,
+	context: ContextTypes.DEFAULT_TYPE,
+	user_id: int,
+	message: str,
+) -> None:
+	"""Handle expired or already-consumed tokens uniformly."""
+	try:
+		await query.edit_message_reply_markup(reply_markup=None)
+		await query.edit_message_text(
+			(query.message.text_markdown_v2 or query.message.text or "") + f"\n\n{message}"
+		)
+	except TelegramError as exc:
+		logger.debug("Failed to edit expired-token message: %s", exc)
+		await context.bot.send_message(chat_id=user_id, text=message)
+
+
 # Callback handler for selection buttons (customer selection)
-# ----------------------------------------------------------------------------
+# -------------------------------------------------------------- ----
 
 async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle customer selection from fuzzy search results."""
@@ -194,16 +210,7 @@ async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     sel = selection.pop(token, user_id)
     if sel is None:
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.edit_message_text(
-                (query.message.text_markdown_v2 or query.message.text or "")
-                + "\n\n⏱️ Selection expired ya already handled."
-            )
-        except Exception:
-            await context.bot.send_message(
-                chat_id=user_id, text="⏱️ Selection expired ya already handled."
-            )
+        await _handle_expired_token(query, context, user_id, "⏱️ Selection expired ya already handled.")
         return
 
     # Get selected customer
@@ -256,17 +263,7 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
     action = pending.pop(token, user_id)
 
     if action is None:
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.edit_message_text(
-                (query.message.text_markdown_v2 or query.message.text or "")
-                + "\n\n⏱️ Confirmation expired ya already handled."
-            )
-        except TelegramError as exc:
-            logger.debug("Failed to edit expired-action message: %s", exc)
-            await context.bot.send_message(
-                chat_id=user_id, text="⏱️ Confirmation expired ya already handled."
-            )
+        await _handle_expired_token(query, context, user_id, "⏱️ Confirmation expired ya already handled.")
         return
 
     # Strip buttons immediately so the user can't double-click.

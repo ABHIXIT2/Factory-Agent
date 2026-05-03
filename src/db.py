@@ -56,6 +56,26 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _insert_audit(
+    db: Client,
+    action_type: str,
+    table_affected: str,
+    record_id: int | None,
+    user_id: int | None,
+    original_message: str,
+    extracted_data: dict[str, Any],
+) -> None:
+	"""Insert an audit log entry. Consolidates 5 repeated insert blocks across write functions."""
+	db.table("audit_log").insert({
+		"action_type": action_type,
+		"table_affected": table_affected,
+		"record_id": record_id,
+		"user_id": user_id,
+		"original_message": original_message,
+		"extracted_data": json.dumps(extracted_data),
+	}).execute()
+
+
 # Retry transient network/connection errors; let logical errors bubble up.
 _retry = retry(
     reraise=True,
@@ -193,20 +213,13 @@ def save_sale(
             "original_message": f"Auto from sale_id={sale_id}",
         }).execute()
 
-    db.table("audit_log").insert({
-        "action_type": "add_sale",
-        "table_affected": "sales",
-        "record_id": sale_id,
-        "user_id": user_id,
-        "original_message": original_message,
-        "extracted_data": json.dumps({
-            "customer_id": customer_id,
-            "qty_kg": qty_kg,
-            "rate_per_kg": rate_per_kg,
-            "total_bill": total_bill,
-            "payment_status": payment_status,
-        }),
-    }).execute()
+    _insert_audit(db, "add_sale", "sales", sale_id, user_id, original_message, {
+        "customer_id": customer_id,
+        "qty_kg": qty_kg,
+        "rate_per_kg": rate_per_kg,
+        "total_bill": total_bill,
+        "payment_status": payment_status,
+    })
 
     logger.info("Saved sale %s: %skg @ ₹%s", sale_id, qty_kg, rate_per_kg)
     return {"success": True, "sale_id": sale_id, "total_bill": total_bill}
@@ -296,18 +309,11 @@ def record_payment(
 
     ledger_id = ledger_result.data[0]["id"] if ledger_result.data else None
 
-    db.table("audit_log").insert({
-        "action_type": "add_payment",
-        "table_affected": "credit_ledger",
-        "record_id": ledger_id,
-        "user_id": user_id,
-        "original_message": original_message,
-        "extracted_data": json.dumps({
-            "customer_id": customer_id,
-            "amount": amount,
-            "payment_date": payment_date,
-        }),
-    }).execute()
+    _insert_audit(db, "add_payment", "credit_ledger", ledger_id, user_id, original_message, {
+        "customer_id": customer_id,
+        "amount": amount,
+        "payment_date": payment_date,
+    })
 
     new_balance = get_customer_balance(customer_id)
     logger.info("Payment recorded: ₹%s from customer %s", amount, customer_id)
@@ -342,18 +348,11 @@ def save_production(
     }).execute()
     prod_id = result.data[0]["id"]
 
-    db.table("audit_log").insert({
-        "action_type": "add_production",
-        "table_affected": "production_log",
-        "record_id": prod_id,
-        "user_id": user_id,
-        "original_message": original_message,
-        "extracted_data": json.dumps({
-            "prod_date": prod_date,
-            "total_produced_kg": total_produced_kg,
-            "total_packets": total_packets,
-        }),
-    }).execute()
+    _insert_audit(db, "add_production", "production_log", prod_id, user_id, original_message, {
+        "prod_date": prod_date,
+        "total_produced_kg": total_produced_kg,
+        "total_packets": total_packets,
+    })
 
     logger.info("Production saved: %skg, %s packets", total_produced_kg, total_packets)
     return {"success": True, "id": prod_id}
@@ -407,19 +406,12 @@ def save_cash_flow(
     }).execute()
     cf_id = result.data[0]["id"]
 
-    db.table("audit_log").insert({
-        "action_type": "add_cash_flow",
-        "table_affected": "cash_flow",
-        "record_id": cf_id,
-        "user_id": user_id,
-        "original_message": original_message,
-        "extracted_data": json.dumps({
-            "flow_date": flow_date,
-            "flow_type": flow_type,
-            "amount": amount,
-            "category": category,
-        }),
-    }).execute()
+    _insert_audit(db, "add_cash_flow", "cash_flow", cf_id, user_id, original_message, {
+        "flow_date": flow_date,
+        "flow_type": flow_type,
+        "amount": amount,
+        "category": category,
+    })
 
     logger.info("Cash flow saved: %s ₹%s", flow_type, amount)
     return {"success": True, "id": cf_id}
@@ -453,14 +445,7 @@ def soft_delete(table: str, record_id: int, user_id: int | None = None,
         "deleted_by": user_id,
     }).eq("id", record_id).execute()
 
-    db.table("audit_log").insert({
-        "action_type": "soft_delete",
-        "table_affected": table,
-        "record_id": record_id,
-        "user_id": user_id,
-        "original_message": reason or "",
-        "extracted_data": json.dumps({"reason": reason}),
-    }).execute()
+    _insert_audit(db, "soft_delete", table, record_id, user_id, reason or "", {"reason": reason})
 
     logger.info("Soft-deleted %s id=%s by user %s", table, record_id, user_id)
     return {"success": True}

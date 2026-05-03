@@ -77,11 +77,13 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_agent_state():
     """Ensure session/rate state is fresh between tests."""
-    from src import session, pending
+    from src import session, pending, selection
     session._sessions.clear()
     session._rate.clear()
     pending._store.clear()
+    selection._store.clear()
     yield
     session._sessions.clear()
     session._rate.clear()
     pending._store.clear()
+    selection._store.clear()
