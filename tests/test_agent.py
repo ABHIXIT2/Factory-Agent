@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src import agent, pending
+from src import agent, pending, session
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +184,8 @@ def test_pending_token_cross_user_rejected():
 # ---------------------------------------------------------------------------
 
 async def test_rate_limiter_blocks_after_threshold(monkeypatch):
-    monkeypatch.setattr(agent, "RATE_LIMIT_MESSAGES", 2)
+    from src import session
+    monkeypatch.setattr(session, "RATE_LIMIT_MESSAGES", 2)
 
     with patch.object(agent, "call_llm",
                       return_value=_make_response(content="ok")):
@@ -230,7 +231,7 @@ async def test_bad_tool_args_handled_gracefully():
 def test_history_trim_preserves_tool_call_pairing(monkeypatch):
     """When the naive cut would orphan a tool_call from its tool result,
     walk forward to a safe boundary."""
-    monkeypatch.setattr(agent, "CONTEXT_WINDOW", 2)  # cap = max(2*4, 20) = 20
+    monkeypatch.setattr(session, "CONTEXT_WINDOW", 2)  # cap = max(2*4, 20) = 20
     # Build messages with a long prefix and a worst-case tool batch crossing the cut.
     msgs = []
     # Pad with 25 plain user/assistant pairs first.
@@ -248,8 +249,8 @@ def test_history_trim_preserves_tool_call_pairing(monkeypatch):
     # Final user turn must always survive.
     msgs.append({"role": "user", "content": "final"})
 
-    agent._set_history(99, msgs)
-    persisted = agent._get_history(99)
+    session.set_history(99, msgs)
+    persisted = session.get_history(99)
     # Final user message survives.
     assert any(m.get("role") == "user" and m.get("content") == "final" for m in persisted)
     # No orphaned tool messages: every "tool" has a preceding "assistant" with tool_calls
@@ -288,7 +289,7 @@ def test_compact_dropped_messages_extracts_save_sale_facts():
         {"role": "tool", "tool_call_id": "tc1", "name": "save_sale",
          "content": json.dumps({"ok": True, "sale_id": 42, "total_bill": 6000})},
     ]
-    summary = agent._compact_dropped_messages(dropped)
+    summary = session._compact_dropped_messages(dropped)
     assert summary is not None
     assert summary["role"] == "system"
     body = summary["content"]
@@ -304,13 +305,13 @@ def test_compact_dropped_messages_skips_assistant_prose():
     dropped = [
         {"role": "assistant", "content": "Sure thing, here's what I found..."},
     ]
-    assert agent._compact_dropped_messages(dropped) is None
+    assert session._compact_dropped_messages(dropped) is None
 
 
 def test_compact_tool_result_shrinks_long_payload(monkeypatch):
-    monkeypatch.setattr(agent, "TOOL_RESULT_HISTORY_MAX_CHARS", 200)
+    monkeypatch.setattr(session, "TOOL_RESULT_HISTORY_MAX_CHARS", 200)
     huge = json.dumps({"ok": True, "results": [{"id": i, "shop": "x" * 30} for i in range(50)]})
-    compacted = agent._compact_tool_result(huge)
+    compacted = session._compact_tool_result(huge)
     parsed = json.loads(compacted)
     assert parsed["truncated"] is True
     assert parsed["ok"] is True
@@ -321,7 +322,7 @@ def test_compact_tool_result_shrinks_long_payload(monkeypatch):
 
 def test_compact_tool_result_passes_through_small_payload():
     small = json.dumps({"ok": True, "sale_id": 1, "total_bill": 100})
-    assert agent._compact_tool_result(small) == small
+    assert session._compact_tool_result(small) == small
 
 
 # ---------------------------------------------------------------------------
