@@ -38,7 +38,7 @@ def _make_tool_call(call_id, name, arguments):
 # ---------------------------------------------------------------------------
 
 async def test_plain_text_response():
-    with patch.object(agent, "_call_groq",
+    with patch.object(agent, "call_llm",
                       return_value=_make_response(content="Hi there!")):
         result = await agent.agent_loop("hello", user_id=1)
     assert result.text == "Hi there!"
@@ -66,7 +66,7 @@ async def test_read_only_tool_executes_inline():
         assert name == "search_customer"
         return fake_tool_result
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.agent_loop("Sharma kaun hai?", user_id=2)
 
@@ -94,7 +94,7 @@ async def test_write_tool_triggers_confirmation():
         executed.append((name, args))
         return json.dumps({"ok": True})
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.agent_loop("Sharma ko 50kg de do", user_id=3)
 
@@ -135,7 +135,7 @@ async def test_continue_after_confirmation_runs_tool():
     async def fake_call(_messages, model=None):
         return _make_response(content="✅ Sale saved: 50kg.")
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.continue_after_confirmation(4, action)
 
@@ -186,7 +186,7 @@ def test_pending_token_cross_user_rejected():
 async def test_rate_limiter_blocks_after_threshold(monkeypatch):
     monkeypatch.setattr(agent, "RATE_LIMIT_MESSAGES", 2)
 
-    with patch.object(agent, "_call_groq",
+    with patch.object(agent, "call_llm",
                       return_value=_make_response(content="ok")):
         r1 = await agent.agent_loop("a", user_id=20)
         r2 = await agent.agent_loop("b", user_id=20)
@@ -214,7 +214,7 @@ async def test_bad_tool_args_handled_gracefully():
     async def fake_call(_m, model=None):
         return responses.pop(0)
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool") as mock_exec:
         result = await agent.agent_loop("blah", user_id=30)
 
@@ -349,7 +349,7 @@ async def test_continue_after_confirmation_uses_template_no_llm_call():
     async def fake_execute(_name, _args):
         return json.dumps({"ok": True, "sale_id": 99, "total_bill": 6000})
 
-    with patch.object(agent, "_call_groq") as mock_call, \
+    with patch.object(agent, "call_llm") as mock_call, \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.continue_after_confirmation(50, action)
 
@@ -375,7 +375,7 @@ async def test_continue_after_confirmation_devanagari_template():
     async def fake_execute(_n, _a):
         return json.dumps({"ok": True, "ledger_id": 7, "new_balance": 1000})
 
-    with patch.object(agent, "_call_groq") as mock_call, \
+    with patch.object(agent, "call_llm") as mock_call, \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.continue_after_confirmation(51, action)
 
@@ -399,7 +399,7 @@ async def test_continue_after_confirmation_templates_failure():
     async def fake_execute(_n, _a):
         return json.dumps({"ok": False, "error": "customer_id 1 not found"})
 
-    with patch.object(agent, "_call_groq") as mock_call, \
+    with patch.object(agent, "call_llm") as mock_call, \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.continue_after_confirmation(52, action)
 
@@ -430,7 +430,7 @@ async def test_iter1_uses_main_model_iter2_uses_fast(monkeypatch):
     async def fake_execute(_n, _a):
         return json.dumps({"ok": True, "results": [{"id": 1, "shop_name": "Sharma"}]})
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         await agent.agent_loop("Sharma kaun?", user_id=70)
 
@@ -438,10 +438,11 @@ async def test_iter1_uses_main_model_iter2_uses_fast(monkeypatch):
 
 
 async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
-    """When Google is primary and hits 429, _call_groq falls back to Groq."""
+    """When Google is primary and hits 429, call_llm falls back to Groq."""
     import openai
+    from src import providers
 
-    monkeypatch.setattr(agent, "GOOGLE_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(providers, "GOOGLE_FALLBACK_ENABLED", True)
 
     groq_resp = _make_response(content="Groq reply")
 
@@ -456,10 +457,12 @@ async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
     async def raise_rate_limit(*_args, **_kwargs):
         raise _MockRateLimitError()
 
-    monkeypatch.setattr(agent, "_call_google", raise_rate_limit)
+    from src import providers
+    monkeypatch.setattr(providers, "_call_google", raise_rate_limit)
 
+    from src import providers
     with patch("asyncio.to_thread", new=fake_groq):
-        result = await agent._call_groq([{"role": "user", "content": "hi"}])
+        result = await providers.call_llm([{"role": "user", "content": "hi"}])
 
     assert result.choices[0].message.content == "Groq reply"
 
@@ -467,15 +470,17 @@ async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
 async def test_both_providers_exhausted_raises(monkeypatch):
     """When Google is disabled and Groq hits 429, RateLimitError propagates."""
     import groq as groq_sdk
+    from src import providers
 
-    monkeypatch.setattr(agent, "GOOGLE_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(providers, "GOOGLE_FALLBACK_ENABLED", False)
 
     async def raise_rate_limit(*_args, **_kwargs):
         raise groq_sdk.RateLimitError("mocked rate limit")
 
+    from src import providers
     with patch("asyncio.to_thread", new=raise_rate_limit):
         with pytest.raises(groq_sdk.RateLimitError):
-            await agent._call_groq([{"role": "user", "content": "hi"}])
+            await providers.call_llm([{"role": "user", "content": "hi"}])
 
 
 async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
@@ -501,7 +506,7 @@ async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
     async def fake_execute(_n, _a):
         return "{}"
 
-    with patch.object(agent, "_call_groq", side_effect=fake_call), \
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.agent_loop("hi", user_id=71)
 
