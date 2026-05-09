@@ -61,7 +61,7 @@ List or filter customers. Supports name fragment, balance range, and sort. Use t
 - `name_fragment` (string, optional)
 - `min_balance` (number, optional)
 - `max_balance` (number, optional)
-- `sort_by` (enum, optional) — `"outstanding_desc"`, `"outstanding_asc"`, `"shop_name"`
+- `sort_by` (enum, optional, default `"shop_name"`) — `"outstanding_desc"`, `"outstanding_asc"`, `"shop_name"`
 - `limit` (number, optional, default 50)
 
 ## get_customer_balance
@@ -72,9 +72,9 @@ Single customer's outstanding balance and credit limit. Quick check.
 
 ## get_all_balances
 
-Top-N balances sorted by largest debtor or shop name. Use for "who owes the most?". For filtered lists, use `query_customers`.
+Top-N balances sorted by largest or smallest debtor. Use for "who owes the most?". For shop-name sort or filtered lists, use `query_customers`.
 
-- `sort_by` (enum, optional, default `"outstanding_desc"`) — `"outstanding_desc"`, `"outstanding_asc"`, `"shop_name"`
+- `sort_by` (enum, optional, default `"outstanding_desc"`) — `"outstanding_desc"`, `"outstanding_asc"`
 - `limit` (number, optional, default 50)
 
 ## save_production
@@ -146,7 +146,7 @@ Soft-delete one row. Marks `is_deleted=TRUE`; views auto-exclude it; data is rec
 
 - `table` (enum, required) — `"sales"`, `"credit_ledger"`, `"production_log"`, `"cash_flow"`
 - `record_id` (number, required)
-- `reason` (string, optional, recommended) — short user-facing reason
+- `reason` (string, required in practice) — short specific reason for the audit log (e.g. `"qty wrong: was 5kg, should be 50kg"`). Always provide one.
 
 Example: `delete_record({"table":"sales","record_id":42,"reason":"qty wrong, user correction"})`
 

@@ -118,22 +118,31 @@ def get_system_prompt() -> str:
         timezone_name=TIMEZONE_NAME,
     )
 def _load_tool_descriptions() -> dict[str, str]:
-    """Load all tool descriptions from prompts/tool_descriptions.md once."""
+    """Load all tool descriptions from prompts/tool_descriptions.md once.
+
+    Each tool's description is everything between its ``## tool_name`` header
+    and the next ``## `` header (or EOF). Param bullets, enums, and examples
+    in the markdown are preserved so the LLM sees the full schema-first text.
+    """
     import pathlib
     desc_file = pathlib.Path(__file__).parent.parent / "prompts" / "tool_descriptions.md"
-    result = {}
+    result: dict[str, str] = {}
     if not desc_file.exists():
         logger.warning("Tool descriptions file not found at %s", desc_file)
         return result
     content = desc_file.read_text(encoding="utf-8")
-    current_tool = None
-    for line in content.split("\n"):
-        line = line.strip()
-        if line.startswith("## "):
-            current_tool = line[3:].strip()
-            result[current_tool] = None
-        elif line and not line.startswith("#") and current_tool and result.get(current_tool) is None:
-            result[current_tool] = line
+    current_tool: str | None = None
+    buffer: list[str] = []
+    for raw_line in content.split("\n"):
+        if raw_line.startswith("## "):
+            if current_tool is not None:
+                result[current_tool] = "\n".join(buffer).strip()
+            current_tool = raw_line[3:].strip()
+            buffer = []
+        elif current_tool is not None:
+            buffer.append(raw_line)
+    if current_tool is not None:
+        result[current_tool] = "\n".join(buffer).strip()
     return result
 
 _TOOL_DESCRIPTIONS = _load_tool_descriptions()
@@ -333,7 +342,14 @@ TOOLS = [
                 "properties": {
                     "flow_date": {"type": "string", "description": "YYYY-MM-DD"},
                     "flow_type": {"type": "string", "enum": ["in", "out"]},
-                    "category": {"type": "string", "minLength": 1, "maxLength": 100},
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "sale_cash", "payment_received", "raw_material", "labour",
+                            "utilities", "transport", "packaging", "equipment",
+                            "loan_in", "loan_out", "owner_draw", "misc_in", "misc_out",
+                        ],
+                    },
                     "description": {"type": "string", "minLength": 1, "maxLength": 500},
                     "amount": {"type": "number", "exclusiveMinimum": 0},
                     "party": {"type": "string", "maxLength": 200},
@@ -394,7 +410,14 @@ TOOLS = [
                     "date_from": {"type": "string", "description": "YYYY-MM-DD"},
                     "date_to": {"type": "string", "description": "YYYY-MM-DD"},
                     "flow_type": {"type": "string", "enum": ["in", "out"]},
-                    "category": {"type": "string", "maxLength": 100},
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "sale_cash", "payment_received", "raw_material", "labour",
+                            "utilities", "transport", "packaging", "equipment",
+                            "loan_in", "loan_out", "owner_draw", "misc_in", "misc_out",
+                        ],
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": MAX_CASH_FLOW_RETURNED},
                 },
             },
