@@ -13,6 +13,7 @@ from src.config import (
     SESSION_TTL_SECONDS, SESSION_MAX_USERS,
     RATE_LIMIT_MESSAGES, RATE_LIMIT_WINDOW_SECONDS,
     CONTEXT_WINDOW, TOOL_RESULT_HISTORY_MAX_CHARS,
+    HISTORY_COMPACT_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,10 +34,16 @@ _SUMMARY_KEY_FIELDS: dict[str, list[str]] = {
     "create_customer": ["shop_name"],
     "save_production": ["prod_date", "total_produced_kg"],
     "save_cash_flow": ["flow_date", "flow_type", "amount", "category"],
+    "get_customer": ["customer_id"],
+    "query_customers": ["name_fragment", "min_balance", "max_balance"],
     "get_customer_balance": ["customer_id"],
     "query_sales": ["customer_id", "date_from", "date_to"],
+    "query_production": ["date_from", "date_to"],
+    "query_cash_flow": ["date_from", "date_to", "flow_type", "category"],
+    "query_credit_ledger": ["customer_id", "transaction_type", "date_from", "date_to"],
     "get_all_balances": [],
-    "get_cash_position": [],
+    "delete_record": ["table", "record_id"],
+    "get_cash_position": ["date_from", "date_to"],
 }
 
 
@@ -46,7 +53,7 @@ def get_history(user_id: int) -> list[dict[str, Any]]:
         return list(_sessions.get(user_id, []))
 
 
-def _compact_tool_result(content: str) -> str:
+def _compact_tool_result(content: str) -> str:  # Used by agent.py for in-flight compaction
     """Shrink oversized tool-result JSON for session history (full sent to LLM in-flight)."""
     if not content or len(content) <= TOOL_RESULT_HISTORY_MAX_CHARS:
         return content
@@ -186,7 +193,7 @@ def set_history(user_id: int, messages: list[dict[str, Any]]) -> None:
        3. Replace the dropped chunk with a one-message factual summary.
     """
     compacted = _compact_history_tool_results(messages)
-    cap = max(CONTEXT_WINDOW * 4, 20)
+    cap = HISTORY_COMPACT_THRESHOLD
     if len(compacted) <= cap:
         with _sessions_lock:
             _sessions[user_id] = compacted

@@ -39,27 +39,25 @@ factory owner's father in Hindi/Hinglish.
 python -m venv venv
 venv\Scripts\activate           # Windows
 # source venv/bin/activate      # Mac/Linux
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # 2. Configure
-cp .env.example .env
+cp config/.env.example .env
 # Fill in: GROQ_API_KEY, TELEGRAM_BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY
 
 # 3. Initialize DB
-# Run database/schema.sql in Supabase SQL editor (see SCHEMA.md)
+# Run database/schema.sql in Supabase SQL editor (see docs/SCHEMA.md)
 
 # 4. Run
 python main.py
 ```
 
-Detailed setup is in [SETUP.md](SETUP.md). Cloud deploy is in [FLY_DEPLOY.md](FLY_DEPLOY.md).
-**Important**: Read [SECRETS.md](SECRETS.md) for token safety and log protection before deploying.
+Detailed setup is in [docs/SETUP.md](docs/SETUP.md). Cloud deploy is in [docs/FLY_DEPLOY.md](docs/FLY_DEPLOY.md).
+**Important**: Read [docs/SECRETS.md](docs/SECRETS.md) for token safety and log protection before deploying.
 
 ## How to Read the Code
 
-Start with **[CODE_TOUR.md](CODE_TOUR.md)** — a 30-minute walkthrough of the
-package, with a real end-to-end trace. Then read in dependency order:
-`config → utils → db → tools → pending → agent → bot → main`.
+Read in dependency order: `config → utils → db → tools → pending → agent → bot → main`.
 
 The package map and dependency diagram live in [`src/__init__.py`](src/__init__.py).
 
@@ -67,41 +65,57 @@ The package map and dependency diagram live in [`src/__init__.py`](src/__init__.
 
 ```text
 Factory-Agent/
-├── README.md               # this file
-├── CODE_TOUR.md            # how to read the codebase
-├── ARCHITECTURE.md         # system design
-├── SCHEMA.md               # PostgreSQL schema (tables, views, triggers)
-├── SECURITY.md             # security model (soft deletes, audit, recovery)
-├── SECRETS.md              # secret safety (logging, token rotation, Fly deploy)
-├── SETUP.md                # local setup walkthrough
-├── FLY_DEPLOY.md           # Fly.io deployment guide
-├── ROADMAP.md              # versioned feature roadmap (v1–v4)
+├── docs/                   # Documentation
+│   ├── ARCHITECTURE.md     # system design
+│   ├── SCHEMA.md           # PostgreSQL schema (tables, views, triggers)
+│   ├── SECURITY.md         # security model (soft deletes, audit, recovery)
+│   ├── SECRETS.md          # secret safety (logging, token rotation)
+│   ├── SETUP.md            # local setup walkthrough
+│   ├── FLY_DEPLOY.md       # Fly.io deployment guide
+│   └── ROADMAP.md          # versioned feature roadmap (v1–v4)
 │
-├── main.py                 # entry point — DB ping, build app, run polling
-├── requirements.txt        # runtime deps
-├── requirements-dev.txt    # +pytest
-├── pytest.ini              # pytest config
-├── Dockerfile + fly.toml   # Fly.io
-├── .env.example            # env var template
+├── deploy/                 # Deployment files
+│   └── Dockerfile          # container image
 │
-├── src/
+├── config/                 # Config templates
+│   └── .env.example        # env var template
+│
+├── src/                    # Application code
 │   ├── __init__.py         # package map + dependency diagram
 │   ├── config.py           # env validation, tool schemas, system prompt
 │   ├── utils.py            # validators, date parsing, formatting
 │   ├── db.py               # Supabase wrapper (retried, soft-delete-aware)
 │   ├── tools.py            # tool dispatch + LLM-arg validation
 │   ├── pending.py          # TTL store of pending write actions
+│   ├── selection.py        # TTL store for customer selection UI
+│   ├── token_store.py      # generic TTL token store (base for pending/selection)
+│   ├── session.py          # session cache, rate limiting, history compaction
+│   ├── render.py           # confirmation card + closing message formatters
+│   ├── providers.py        # Groq + Google Gemini LLM clients
 │   ├── agent.py            # LLM loop, sessions, rate limit, confirmation
 │   └── bot.py              # Telegram handlers + callback handler
 │
-├── database/
-│   └── schema.sql          # full PostgreSQL schema
+├── database/               # Database schema
+│   └── schema.sql          # PostgreSQL DDL (tables, views, triggers)
 │
-└── tests/
-    ├── conftest.py         # mock Groq + Supabase, env vars, state reset
-    ├── test_utils.py       # validator + date-parsing tests
-    ├── test_tools.py       # tool dispatch + validation + redaction tests
-    └── test_agent.py       # mocked-Groq loop + confirmation flow tests
+├── tests/                  # Test suite
+│   ├── conftest.py         # mock Groq + Supabase, env vars, state reset
+│   ├── test_utils.py       # validator + date-parsing tests
+│   ├── test_tools.py       # tool dispatch + validation + redaction tests
+│   ├── test_agent.py       # mocked-Groq loop + confirmation flow tests
+│   ├── test_pending.py     # pending action store tests
+│   ├── test_render.py      # confirmation card renderer tests
+│   ├── test_selection.py   # customer selection store tests
+│   ├── test_token_store.py # token store tests
+│   ├── test_bot.py         # Telegram handler tests
+│   └── __init__.py
+│
+├── README.md               # this file
+├── FIXES_APPLIED.md        # audit fixes documentation
+├── main.py                 # entry point — DB ping, build app, run polling
+├── pyproject.toml          # project metadata + all tool config
+├── fly.toml                # Fly.io deployment config
+└── [.gitignore, .env, etc]
 ```
 
 ## Architecture (one-paragraph version)

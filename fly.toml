@@ -2,7 +2,7 @@ app = "factory-agent-namkeen"
 primary_region = "bom"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "deploy/Dockerfile"
 
 [[services]]
   internal_port = 8080

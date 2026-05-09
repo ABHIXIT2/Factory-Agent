@@ -34,6 +34,60 @@ def _make_tool_call(call_id, name, arguments):
 
 
 # ---------------------------------------------------------------------------
+# Tool-call dedup helper
+# ---------------------------------------------------------------------------
+
+def test_dedupe_tool_calls_drops_exact_duplicate():
+    """Identical (name, args) tool_calls collapse to one."""
+    calls = [
+        _make_tool_call("a", "create_customer", {"shop_name": "Abhinav Kirana"}),
+        _make_tool_call("b", "create_customer", {"shop_name": "Abhinav Kirana"}),
+    ]
+    deduped = agent._dedupe_tool_calls(calls)
+    assert len(deduped) == 1
+    assert deduped[0].id == "a"  # first wins
+
+
+def test_dedupe_tool_calls_ignores_arg_order():
+    """Args differing only in JSON key order are still treated as duplicates."""
+    calls = [
+        types.SimpleNamespace(
+            id="a", type="function",
+            function=types.SimpleNamespace(name="save_sale", arguments='{"qty_kg":10,"customer_id":1}'),
+        ),
+        types.SimpleNamespace(
+            id="b", type="function",
+            function=types.SimpleNamespace(name="save_sale", arguments='{"customer_id":1,"qty_kg":10}'),
+        ),
+    ]
+    deduped = agent._dedupe_tool_calls(calls)
+    assert len(deduped) == 1
+
+
+def test_dedupe_tool_calls_keeps_distinct():
+    """Different names or different args are kept as separate calls."""
+    calls = [
+        _make_tool_call("a", "search_customer", {"name_fragment": "Sharma"}),
+        _make_tool_call("b", "create_customer", {"shop_name": "Sharma"}),
+        _make_tool_call("c", "create_customer", {"shop_name": "Patel"}),
+    ]
+    deduped = agent._dedupe_tool_calls(calls)
+    assert len(deduped) == 3
+
+
+def test_dedupe_tool_calls_preserves_malformed():
+    """Malformed-args tool_calls aren't silently dropped — they fall through."""
+    calls = [
+        types.SimpleNamespace(
+            id="a", type="function",
+            function=types.SimpleNamespace(name="save_sale", arguments="{bad json"),
+        ),
+    ]
+    deduped = agent._dedupe_tool_calls(calls)
+    assert len(deduped) == 1
+
+
+# ---------------------------------------------------------------------------
 # Plain text turn (no tool call)
 # ---------------------------------------------------------------------------
 
@@ -435,7 +489,7 @@ async def test_iter1_uses_main_model_iter2_uses_fast(monkeypatch):
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         await agent.agent_loop("Sharma kaun?", user_id=70)
 
-    assert captured_models == ["test-70b", "test-8b"]
+    assert captured_models == ["test-70b", "test-70b"]
 
 
 async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
@@ -485,18 +539,13 @@ async def test_both_providers_exhausted_raises(monkeypatch):
 
 
 async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
-    """If the fast model returns no choices on iter 2+, retry once on the main model."""
+    """All iterations now use main model. Fallback logic no longer applies."""
     monkeypatch.setattr(agent, "GROQ_MODEL", "test-70b")
     monkeypatch.setattr(agent, "GROQ_MODEL_FAST", "test-8b")
-    bad = types.SimpleNamespace(
-        choices=[],
-        usage=types.SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-    )
     responses = [
         _make_response(tool_calls=[_make_tool_call(
             "tc1", "search_customer", {"name_fragment": "x"})]),
-        bad,                                 # iter 2 on 8B returns empty
-        _make_response(content="Recovered."),  # fallback to 70B succeeds
+        _make_response(content="Recovered."),
     ]
     captured: list = []
 
@@ -511,5 +560,5 @@ async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
          patch.object(agent, "execute_tool", side_effect=fake_execute):
         result = await agent.agent_loop("hi", user_id=71)
 
-    assert captured == ["test-70b", "test-8b", "test-70b"]
+    assert captured == ["test-70b", "test-70b"]
     assert result.text == "Recovered."

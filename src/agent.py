@@ -12,7 +12,7 @@ Agent loop: Groq LLM with tool-calling and confirm-before-write.
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import groq as groq_sdk
@@ -20,17 +20,18 @@ import openai
 
 from src.config import (
     GROQ_MODEL, GROQ_MODEL_FAST,
-    SYSTEM_PROMPT, TOOLS, MAX_ITERATIONS,
+    get_system_prompt, TOOLS, MAX_ITERATIONS,
 )
 from src.providers import call_llm
 from src.session import (
     get_history, set_history, clear_history, check_rate_limit,
-    inject_selected_customer,
+    _compact_tool_result,
 )
 from src.tools import execute_tool
 from src import pending, selection
 from src.render import _build_summary, _render_closing, _extract_customer_names
-from src.utils import format_amount, detect_user_lang
+from src.utils import detect_user_lang
+from src import logger as log_utils
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,42 @@ WRITE_TOOLS = {
     "save_production",
     "save_cash_flow",
     "create_customer",
+    "delete_record",
 }
+
+# Irrelevant fields to remove from tool results when storing in history
+_TOOL_RESULT_KEEP_FIELDS = {
+    "search_customer": {"ok", "results", "count", "selection_required", "customer_options", "not_found"},
+    "create_customer": {"ok", "customer_id", "shop_name"},
+    "save_sale": {"ok", "sale_id", "total_bill"},
+    "record_payment": {"ok", "ledger_id", "new_balance"},
+    "get_customer_balance": {"ok", "customer_id", "outstanding_balance", "credit_limit", "not_found"},
+    "get_all_balances": {"ok", "balances"},
+    "save_production": {"ok", "id"},
+    "save_cash_flow": {"ok", "id"},
+    "get_customer": {"ok", "customer", "not_found"},
+    "query_customers": {"ok", "customers", "count"},
+    "query_production": {"ok", "production", "count", "total_kg"},
+    "query_cash_flow": {"ok", "cash_flows", "count", "total_in", "total_out"},
+    "query_credit_ledger": {"ok", "ledger", "count", "total_debit", "total_credit"},
+    "query_sales": {"ok", "sales"},
+    "delete_record": {"ok", "success"},
+    "get_cash_position": {"ok", "total_in", "total_out", "net_cash"},
+}
+
+def _clean_tool_result(tool_name: str, content: str) -> str:
+    """Remove irrelevant fields from tool result JSON. Keep only essential data."""
+    if not content:
+        return content
+    try:
+        payload = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return content
+    if not isinstance(payload, dict):
+        return content
+    keep_fields = _TOOL_RESULT_KEEP_FIELDS.get(tool_name, {"ok"})
+    cleaned = {k: v for k, v in payload.items() if k in keep_fields}
+    return json.dumps(cleaned)
 
 
 
@@ -75,6 +111,30 @@ def _serialize_tool_calls(message_tool_calls) -> list[dict[str, Any]]:
         }
         for tc in message_tool_calls
     ]
+
+
+def _dedupe_tool_calls(tool_calls: list[Any]) -> list[Any]:
+    """Drop later tool_calls whose (name + normalized arguments) match an earlier one.
+
+    Some smaller models (e.g. llama-3.1-8b-instant) hallucinate identical tool_calls
+    in a single response — most commonly create_customer twice for the same shop.
+    Compare on parsed-and-sorted arguments so trivial whitespace/key-order
+    differences in the JSON string don't defeat the check.
+    """
+    seen: set[str] = set()
+    deduped: list[Any] = []
+    for tc in tool_calls:
+        try:
+            args_obj = json.loads(tc.function.arguments or "{}")
+        except (json.JSONDecodeError, TypeError):
+            args_obj = tc.function.arguments  # keep raw so malformed calls still surface
+        key = f"{tc.function.name}::{json.dumps(args_obj, sort_keys=True, default=str)}"
+        if key in seen:
+            log_utils.log_error(0, "DuplicateToolCall", f"Dropped duplicate: {tc.function.name}")
+            continue
+        seen.add(key)
+        deduped.append(tc)
+    return deduped
 
 
 # ----------------------------------------------------------------------------
@@ -103,19 +163,30 @@ async def agent_loop(
         logger.warning("Rate limited user %s (retry after %ss)", user_id, retry)
         return AgentResult(text=f"⏳ Apne bahut messages bhej diye. Kripiya ruk ke phir bhejein (~{retry}s).")
 
+    log_utils.log_user_message(user_id, user_message)
+
     history = get_history(user_id)
     history.append({"role": "user", "content": user_message})
 
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}, *history]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": get_system_prompt()}, *history]
 
     final_text: str = ""
     confirmation: Confirmation | None = None
+    tools_called: list[str] = []
+    iteration_count: int = 0
 
     try:
         for iteration in range(1, MAX_ITERATIONS + 1):
-            logger.debug("Agent iter %s for user %s", iteration, user_id)
-            chosen_model = GROQ_MODEL if iteration == 1 else GROQ_MODEL_FAST
+            iteration_count = iteration
+            chosen_model = GROQ_MODEL
+
+            # Log the exact messages being sent
+            log_utils.log_llm_request(user_id, iteration, chosen_model, messages)
+
             response = await call_llm(messages, model=chosen_model)
+
+            # Log the raw response
+            log_utils.log_llm_response(user_id, iteration, response)
 
             if not response.choices or not response.choices[0].message:
                 if chosen_model != GROQ_MODEL:
@@ -135,15 +206,21 @@ async def agent_loop(
                 messages.append({"role": "assistant", "content": final_text})
                 break
 
+            # Log raw tool calls before dedup
+            raw_count = len(message.tool_calls)
+            tool_calls = _dedupe_tool_calls(message.tool_calls)
+            if len(tool_calls) < raw_count:
+                log_utils.log_error(user_id, "DedupResult", f"Dropped {raw_count - len(tool_calls)} duplicates, kept {len(tool_calls)}")
+
             assistant_msg = {
                 "role": "assistant",
                 "content": message.content or "",
-                "tool_calls": _serialize_tool_calls(message.tool_calls),
+                "tool_calls": _serialize_tool_calls(tool_calls),
             }
 
             # Parse arguments + classify
             parsed_calls: list[tuple[Any, dict[str, Any], bool]] = []
-            for tc in message.tool_calls:
+            for tc in tool_calls:
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                     if not isinstance(args, dict):
@@ -187,11 +264,16 @@ async def agent_loop(
                         "first_name": first_name,
                     },
                 ))
+                tool_call_dicts = [{"name": c.name, "args": c.arguments} for c in write_calls]
+                log_utils.log_confirmation_staged(user_id, summary, tool_call_dicts)
                 confirmation = Confirmation(token=token, summary=summary)
-                # Don't persist the unanswered tool_call to history — we'll add
-                # it once the user confirms. This keeps history valid if cancelled.
+
+                # Add assistant message to history so next turn sees the full conversation
+                # This keeps the conversation coherent even if user cancels
+                messages.append(assistant_msg)
+                set_history(user_id, [m for m in messages if m["role"] != "system"])
+
                 final_text = summary
-                # Strip the user message we appended; it stays in history regardless
                 break
 
             # No writes → execute every tool inline and continue the loop.
@@ -201,9 +283,10 @@ async def agent_loop(
                 if err:
                     tool_result = json.dumps({"ok": False, "error": "invalid tool arguments JSON"})
                 else:
-                    logger.info("tool_call user=%s name=%s", user_id, tc.function.name)
+                    tools_called.append(tc.function.name)
                     try:
                         tool_result = await execute_tool(tc.function.name, args)
+                        log_utils.log_tool_execution(user_id, tc.function.name, args, tool_result)
                     except Exception as exc:
                         exc.add_note(f"tool={tc.function.name}, user_id={user_id}")
                         raise
@@ -237,11 +320,13 @@ async def agent_loop(
                     except (json.JSONDecodeError, TypeError):
                         pass
 
+                compacted_result = _compact_tool_result(tool_result)
+                cleaned_result = _clean_tool_result(tc.function.name, compacted_result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "name": tc.function.name,
-                    "content": tool_result,
+                    "content": cleaned_result,
                 })
 
             # If selection prompt was triggered, break out and return to bot
@@ -251,23 +336,29 @@ async def agent_loop(
                     selection_text = "🔍 *कई ग्राहक मिले। नीचे से चुनिए:*"
                 else:
                     selection_text = "🔍 *Multiple customers found. Please select one:*"
+                options_dicts = [{"id": opt.id, "shop_name": opt.shop_name} for opt in customer_options]
+                log_utils.log_selection_ui(user_id, options_dicts)
                 final_text = selection_text
                 confirmation = Confirmation(token=sel_token, summary=selection_text, _is_selection=True)
                 break
         else:
-            logger.warning("Max iterations reached for user %s", user_id)
+            log_utils.log_agent_error(user_id, "max_iterations")
             final_text = "⏱️ Bahut steps ho gaye. assan task dijiye."
 
+    except groq_sdk.RateLimitError as exc:
+        log_utils.log_error(user_id, "RateLimitError", str(exc))
+        return AgentResult(text="⏳ Server busy. Please retry in a few moments.")
     except (groq_sdk.GroqError, openai.APIError, ValueError, json.JSONDecodeError) as exc:
-        logger.exception("Agent loop error for user %s", user_id)
+        log_utils.log_error(user_id, type(exc).__name__, str(exc))
         return AgentResult(text="❌ Kuch gadbad ho gayi. kripeya phir se try karein.")
     except Exception as exc:
-        logger.exception("Unexpected agent error for user %s", user_id)
+        log_utils.log_error(user_id, "UnexpectedError", str(exc))
         exc.add_note(f"user_id={user_id}, loop failure")
         raise
 
     set_history(user_id, [m for m in messages if m["role"] != "system"])
-    logger.info("Agent finished for user %s: %s", user_id, final_text[:80])
+
+    log_utils.log_query_result(user_id, final_text, iteration_count, tools_called)
     return AgentResult(text=final_text or "✅ Done.", confirmation=confirmation)
 
 
@@ -282,7 +373,7 @@ async def continue_after_confirmation(
 ) -> AgentResult:
     """Execute deferred tool calls and render closing via template (no LLM round-trip)."""
     history = get_history(user_id)
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}, *history]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": get_system_prompt()}, *history]
     messages.append(action.assistant_message)
 
     extras = action.extras or {}
@@ -290,13 +381,16 @@ async def continue_after_confirmation(
     customer_names = dict(extras.get("customer_names") or {})
     customer_names.update(_extract_customer_names(messages))
 
+    tool_calls_to_execute = [{"name": c.name, "args": c.arguments} for c in action.tool_calls]
+    log_utils.log_confirmation_executed(user_id, tool_calls_to_execute)
+
     closing_lines: list[str] = []
     for call in action.tool_calls:
-        logger.info("confirmed_tool_call user=%s name=%s", user_id, call.name)
         try:
             tool_result = await execute_tool(call.name, dict(call.arguments))
-        except Exception:
-            logger.exception("Confirmed tool %s failed for user %s", call.name, user_id)
+            log_utils.log_tool_execution(user_id, call.name, dict(call.arguments), tool_result)
+        except Exception as e:
+            log_utils.log_error(user_id, f"ToolExecutionFailed", f"{call.name}: {str(e)}")
             tool_result = json.dumps({"ok": False, "error": "internal error"})
         messages.append({
             "role": "tool",

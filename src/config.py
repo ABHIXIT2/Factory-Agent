@@ -53,8 +53,10 @@ GROQ_TEMPERATURE: float = float(os.getenv("GROQ_TEMPERATURE", "0.3"))
 # Google Gemini (primary provider via OpenAI-compatible endpoint)
 # Set GOOGLE_AI_STUDIO_KEY in .env to enable. When enabled, Google is primary, Groq is fallback.
 GOOGLE_AI_STUDIO_KEY: str = os.getenv("GOOGLE_AI_STUDIO_KEY", "")
+if GOOGLE_AI_STUDIO_KEY and GOOGLE_AI_STUDIO_KEY.lower() in ("none", "test", "fake", "placeholder"):
+    raise ValueError("GOOGLE_AI_STUDIO_KEY is set to a placeholder. Set a real key or leave empty.")
 GOOGLE_MODEL: str = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
-GOOGLE_FALLBACK_ENABLED: bool = bool(GOOGLE_AI_STUDIO_KEY)
+GOOGLE_PRIMARY_ENABLED: bool = bool(GOOGLE_AI_STUDIO_KEY)
 
 # Daily token budgets — used only for the terminal usage bars; not enforced.
 GROQ_DAILY_TOKEN_LIMIT: int = int(os.getenv("GROQ_DAILY_TOKEN_LIMIT", "100000"))
@@ -63,6 +65,7 @@ GOOGLE_DAILY_TOKEN_LIMIT: int = int(os.getenv("GOOGLE_DAILY_TOKEN_LIMIT", "10000
 # Agent loop limits
 MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "5"))
 CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", "10"))
+HISTORY_COMPACT_THRESHOLD: int = int(os.getenv("HISTORY_COMPACT_THRESHOLD", "6"))
 
 # Per-message cap for tool results stored in persisted history. The full
 # result is always shown to the LLM in-flight; we only compact the copy
@@ -80,6 +83,10 @@ RATE_LIMIT_WINDOW_SECONDS: int = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"
 # Result-set limits
 MAX_BALANCES_RETURNED: int = int(os.getenv("MAX_BALANCES_RETURNED", "20"))
 MAX_SALES_RETURNED: int = int(os.getenv("MAX_SALES_RETURNED", "20"))
+MAX_CUSTOMERS_RETURNED: int = int(os.getenv("MAX_CUSTOMERS_RETURNED", "50"))
+MAX_PRODUCTION_RETURNED: int = int(os.getenv("MAX_PRODUCTION_RETURNED", "20"))
+MAX_CASH_FLOW_RETURNED: int = int(os.getenv("MAX_CASH_FLOW_RETURNED", "30"))
+MAX_LEDGER_RETURNED: int = int(os.getenv("MAX_LEDGER_RETURNED", "30"))
 
 # ============================================================================
 # SYSTEM PROMPT
@@ -90,47 +97,58 @@ def _today_iso() -> str:
     return datetime.now(TIMEZONE).strftime("%Y-%m-%d")
 
 
-TODAY_ISO = _today_iso()
+def _load_system_prompt() -> str:
+    """Load system prompt template from file."""
+    import pathlib
+    prompt_file = pathlib.Path(__file__).parent.parent / "prompts" / "system_prompt.md"
+    if not prompt_file.exists():
+        logger.warning("system_prompt.md not found at %s, using fallback", prompt_file)
+        return ""
+    return prompt_file.read_text(encoding="utf-8").strip()
 
 
-SYSTEM_PROMPT = f"""You are a helpful factory operations assistant for a Namkeen factory.
+_SYSTEM_PROMPT_TEMPLATE = _load_system_prompt()
 
-Your job is to help manage:
-1. Sales log (shop-wise daily sales)
-2. Customer credit ledger (tracking who owes what)
-3. Production log (daily production tracking)
-4. Cash flow log (all cash movements)
 
-Today's date: {TODAY_ISO}
-Timezone: {TIMEZONE_NAME}
+def get_system_prompt() -> str:
+    """Generate system prompt with today's date (called per LLM turn, not at module load)."""
+    today_iso = _today_iso()
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        today_iso=today_iso,
+        timezone_name=TIMEZONE_NAME,
+    )
+def _load_tool_descriptions() -> dict[str, str]:
+    """Load all tool descriptions from prompts/tool_descriptions.md once."""
+    import pathlib
+    desc_file = pathlib.Path(__file__).parent.parent / "prompts" / "tool_descriptions.md"
+    result = {}
+    if not desc_file.exists():
+        logger.warning("Tool descriptions file not found at %s", desc_file)
+        return result
+    content = desc_file.read_text(encoding="utf-8")
+    current_tool = None
+    for line in content.split("\n"):
+        line = line.strip()
+        if line.startswith("## "):
+            current_tool = line[3:].strip()
+            result[current_tool] = None
+        elif line and not line.startswith("#") and current_tool and result.get(current_tool) is None:
+            result[current_tool] = line
+    return result
 
-IMPORTANT RULES:
-- Detect the user's language (Hindi, Hinglish, or English) and respond in the same language.
-- Never assume customer names — always search and confirm first.
-- If required fields are missing, ask follow-up questions (All at a time).
-- Every transaction must include: original user message, timestamp, who confirmed it.
-- Do NOT render your own confirmation message or fake buttons. The system intercepts every write tool call and shows the user real ✅/❌ buttons automatically. Just emit the tool call — the harness handles confirmation.
+_TOOL_DESCRIPTIONS = _load_tool_descriptions()
 
-RESPONSE RULES:
-- Keep responses short and natural (1-3 sentences).
-- Use emojis: ✅ for success, ❌ for errors, 📋 for confirmations, ₹ for amounts.
-- For Hindi: use Hinglish (Roman script) unless user wrote in Devanagari; match their style.
-- Never make assumptions—ask if unclear.
-- After saving, confirm what was saved: "✅ Sale saved: [details]. [Customer] ka baqaya: ₹[amount]."
-"""
-# ============================================================================
-# TOOL SCHEMAS (for Groq API)
-#
-# Note: numeric ranges enforced server-side in tools.py validators; we also
-# describe them here so the LLM emits sensible values.
-# ============================================================================
+def _get_tool_description(tool_name: str) -> str:
+    """Get a tool description by name."""
+    return _TOOL_DESCRIPTIONS.get(tool_name, f"{tool_name}.")
+
 
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "search_customer",
-            "description": "Search for a customer by partial shop name. Always call before referencing a customer.",
+            "description": _get_tool_description("search_customer"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -149,7 +167,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_customer",
-            "description": "Create a new customer.",
+            "description": _get_tool_description("create_customer"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -167,7 +185,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "save_sale",
-            "description": "Record a sale transaction.",
+            "description": _get_tool_description("save_sale"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -191,7 +209,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "record_payment",
-            "description": "Record a customer payment.",
+            "description": _get_tool_description("record_payment"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -209,8 +227,54 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "query_credit_ledger",
+            "description": _get_tool_description("query_credit_ledger"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {"type": "integer", "minimum": 1},
+                    "transaction_type": {"type": "string", "enum": ["sale_credited", "payment_received"]},
+                    "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LEDGER_RETURNED},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_customer",
+            "description": _get_tool_description("get_customer"),
+            "parameters": {
+                "type": "object",
+                "properties": {"customer_id": {"type": "integer", "minimum": 1}},
+                "required": ["customer_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_customers",
+            "description": _get_tool_description("query_customers"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name_fragment": {"type": "string", "maxLength": 100},
+                    "min_balance": {"type": "number", "minimum": 0},
+                    "max_balance": {"type": "number", "minimum": 0},
+                    "sort_by": {"type": "string", "enum": ["shop_name", "outstanding_desc", "outstanding_asc"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_CUSTOMERS_RETURNED},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_customer_balance",
-            "description": "Get a customer's outstanding balance.",
+            "description": _get_tool_description("get_customer_balance"),
             "parameters": {
                 "type": "object",
                 "properties": {"customer_id": {"type": "integer", "minimum": 1}},
@@ -222,7 +286,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_all_balances",
-            "description": "Get top-N customer outstanding balances.",
+            "description": _get_tool_description("get_all_balances"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -243,7 +307,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "save_production",
-            "description": "Record production log entry.",
+            "description": _get_tool_description("save_production"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -263,7 +327,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "save_cash_flow",
-            "description": "Record cash flow (income or expense).",
+            "description": _get_tool_description("save_cash_flow"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -288,7 +352,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_sales",
-            "description": "Query sales records.",
+            "description": _get_tool_description("query_sales"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -307,9 +371,63 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "query_production",
+            "description": _get_tool_description("query_production"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PRODUCTION_RETURNED},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_cash_flow",
+            "description": _get_tool_description("query_cash_flow"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                    "flow_type": {"type": "string", "enum": ["in", "out"]},
+                    "category": {"type": "string", "maxLength": 100},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_CASH_FLOW_RETURNED},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_cash_position",
-            "description": "Get total cash in/out and net position.",
-            "parameters": {"type": "object", "properties": {}},
+            "description": _get_tool_description("get_cash_position"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_record",
+            "description": _get_tool_description("delete_record"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table": {"type": "string", "enum": ["sales", "credit_ledger", "production_log", "cash_flow"]},
+                    "record_id": {"type": "integer", "minimum": 1},
+                    "reason": {"type": "string", "maxLength": 500},
+                },
+                "required": ["table", "record_id"],
+            },
         },
     },
 ]

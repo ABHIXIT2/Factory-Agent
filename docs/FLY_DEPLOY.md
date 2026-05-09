@@ -6,7 +6,7 @@ Deploy the bot to the cloud (free, always-on, no device needed).
 
 ## Prerequisites
 
-- Bot tested locally (see `SETUP.md`)
+- Bot tested locally (see `docs/SETUP.md`)
 - Fly CLI installed: [fly.io/docs/getting-started/installing-flyctl](https://fly.io/docs/getting-started/installing-flyctl/)
 - Fly account created: [fly.io](https://fly.io) (sign up is free)
 
@@ -25,13 +25,14 @@ This opens a browser. Sign in to your Fly account. ✅
 ## Step 2: Prepare Deployment Files
 
 The project already has:
-- `Dockerfile` — containerizes the bot
-- `fly.toml` — Fly configuration
+
+- `deploy/Dockerfile` — containerizes the bot
+- `fly.toml` — Fly configuration (at root)
 
 Verify they exist and look correct:
 
 ```bash
-cat Dockerfile
+cat deploy/Dockerfile
 cat fly.toml
 ```
 

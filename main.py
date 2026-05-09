@@ -39,9 +39,10 @@ _handler.setFormatter(_ColoredFormatter(
 ))
 logging.basicConfig(level=logging.INFO, handlers=[_handler])
 
-# httpx logs full URLs (which contain the bot token) at INFO. Mute it.
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# Silence verbose SDK loggers
+logging.getLogger("httpx").setLevel(logging.WARNING)  # httpx logs full URLs (which contain the bot token) at INFO
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)  # openai retries at INFO level
 
 logger = logging.getLogger(__name__)
 

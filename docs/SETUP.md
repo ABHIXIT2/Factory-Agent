@@ -12,7 +12,7 @@ Complete all three steps below before running Labbu.
 4. Go to **Settings → API → Keys**
    - Copy the `URL` value
    - Copy the `anon public` key (this is your `SUPABASE_KEY`)
-5. Go to **SQL Editor** and run the full schema from `SCHEMA.md`:
+5. Go to **SQL Editor** and run the full schema from `docs/SCHEMA.md`:
    - Paste the entire SQL script into the editor
    - Click ▶️ Run
    - Wait for all tables/views/triggers to be created (~30 seconds)
@@ -41,9 +41,9 @@ Complete all three steps below before running Labbu.
 
 ## Step 3: Environment Variables
 
-1. In the project root, create a file named `.env` (copy from `.env.example`):
+1. In the project root, create a file named `.env` (copy from `config/.env.example`):
    ```bash
-   cp .env.example .env
+   cp config/.env.example .env
    ```
 
 2. Open `.env` and fill in:

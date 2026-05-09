@@ -111,6 +111,8 @@ def validate_positive_number(value: object, field: str, *, allow_zero: bool = Fa
 
 
 def validate_positive_int(value: object, field: str, *, allow_zero: bool = False) -> int:
+    if isinstance(value, float) and value != int(value):
+        raise ValueError(f"{field} must be an integer (got {value!r})")
     try:
         n = int(value)
     except (TypeError, ValueError) as exc:
@@ -181,32 +183,3 @@ def detect_user_lang(text: str | None) -> str:
     return "hi-Deva" if _DEVANAGARI_RE.search(text) else "hi-Latn"
 
 
-# ============================================================================
-# TABLE RENDERING FOR TELEGRAM
-# ============================================================================
-
-def render_balance_table(balances: list[dict[str, Any]]) -> str:
-    if not balances:
-        return "No customers found."
-    lines = ["🔴 *Outstanding Balances*\n"]
-    total = 0.0
-    for i, row in enumerate(balances[:10], 1):
-        shop = row.get("shop_name", "Unknown")
-        amount = row.get("outstanding_balance") or 0
-        total += float(amount)
-        lines.append(f"{i}. {shop} — {format_amount(amount)}")
-    lines.append(f"\n*Total Outstanding: {format_amount(total)}*")
-    return "\n".join(lines)
-
-
-def render_sales_table(sales: list[dict[str, Any]]) -> str:
-    if not sales:
-        return "No sales found."
-    lines = ["📦 *Sales*\n"]
-    for row in sales[:5]:
-        d = row.get("sale_date", "?")
-        qty = row.get("quantity_kg") or 0
-        rate = row.get("rate_per_kg") or 0
-        total = float(qty) * float(rate)
-        lines.append(f"{d}: {qty}kg @ ₹{rate} = {format_amount(total)}")
-    return "\n".join(lines)

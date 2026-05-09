@@ -8,7 +8,7 @@ import asyncio
 import contextlib
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
@@ -18,9 +18,11 @@ from telegram.ext import (
 from src.config import TELEGRAM_BOT_TOKEN
 from src.agent import (
     AgentResult, agent_loop, cancel_pending, clear_history,
-    continue_after_confirmation, inject_selected_customer,
+    continue_after_confirmation,
 )
+from src.session import inject_selected_customer
 from src import db, pending, selection
+from src import logger as log_utils
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +38,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     try:
         await asyncio.to_thread(db.init_user, user_id, user.username or "", first_name)
-    except Exception as exc:
+    except Exception:
         logger.exception("init_user failed for %s", user_id)
-        exc.add_note(f"user_id={user_id}")
 
     welcome_text = (
         "🏭 *Labbu* activated!\n\n"
@@ -144,8 +145,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     first_name = user.first_name or ""
     user_message = (update.message.text or "")[:4000]
 
-    logger.info("msg user=%s len=%s preview=%r", user_id, len(user_message), user_message[:60])
-
     with contextlib.suppress(TelegramError):
         await context.bot.send_chat_action(chat_id=user_id, action="typing")
 
@@ -168,24 +167,23 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _handle_expired_token(
-	query: CallbackQuery,
-	context: ContextTypes.DEFAULT_TYPE,
-	user_id: int,
-	message: str,
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    message: str,
 ) -> None:
-	"""Handle expired or already-consumed tokens uniformly."""
-	try:
-		await query.edit_message_reply_markup(reply_markup=None)
-		await query.edit_message_text(
-			(query.message.text_markdown_v2 or query.message.text or "") + f"\n\n{message}"
-		)
-	except TelegramError as exc:
-		logger.debug("Failed to edit expired-token message: %s", exc)
-		await context.bot.send_message(chat_id=user_id, text=message)
+    """Handle expired or already-consumed tokens uniformly."""
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.edit_message_text(
+            (query.message.text_markdown_v2 or query.message.text or "") + f"\n\n{message}"
+        )
+    except TelegramError as exc:
+        logger.debug("Failed to edit expired-token message: %s", exc)
+        await context.bot.send_message(chat_id=user_id, text=message)
 
 
 # Callback handler for selection buttons (customer selection)
-# -------------------------------------------------------------- ----
 
 async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle customer selection from fuzzy search results."""

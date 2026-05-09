@@ -12,8 +12,8 @@ from openai import AsyncOpenAI
 import asyncio
 
 from src.config import (
-    GROQ_API_KEY, GOOGLE_AI_STUDIO_KEY, GOOGLE_MODEL, GOOGLE_FALLBACK_ENABLED,
-    GROQ_MODEL, GROQ_MODEL_FAST, GROQ_MAX_TOKENS, GROQ_TEMPERATURE,
+    GROQ_API_KEY, GOOGLE_AI_STUDIO_KEY, GOOGLE_MODEL, GOOGLE_PRIMARY_ENABLED,
+    GROQ_MODEL, GROQ_MAX_TOKENS, GROQ_TEMPERATURE,
     GROQ_DAILY_TOKEN_LIMIT, GOOGLE_DAILY_TOKEN_LIMIT,
 )
 
@@ -26,7 +26,7 @@ _google_client: AsyncOpenAI | None = (
         api_key=GOOGLE_AI_STUDIO_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     )
-    if GOOGLE_FALLBACK_ENABLED
+    if GOOGLE_PRIMARY_ENABLED
     else None
 )
 
@@ -92,39 +92,26 @@ def _print_usage(
 
 
 def _warn_rate_limit(provider: str) -> None:
-    ts = datetime.now().strftime("%H:%M:%S")
-    if provider.lower() == "gemini":
-        msg = "⚠  GEMINI RATE LIMITED"
-        fallback = "GROQ"
-    else:
-        msg = "⚠  GROQ RATE LIMITED"
-        fallback = "GEMINI"
-    line = (
-        f"{_color(ts, '2')} "
-        f"{_color(msg, '1;33')} "
-        f"{_color(f'→ falling back to {fallback}', '33')}"
-    )
-    sys.stderr.write(line + "\n")
-    sys.stderr.flush()
-    logger.warning("rate_limited provider=%s falling_back_to=%s", provider, fallback.lower())
+    """Silent rate limit handling - fallback is transparent."""
+    pass
 
 
 async def call_llm(
     messages: list[dict[str, Any]], model: str | None = None
 ) -> Any:
     """Call Groq LLM with Google Gemini fallback on rate-limit."""
-    from src.config import SYSTEM_PROMPT, TOOLS
+    from src.config import TOOLS
 
     chosen_model = model or GROQ_MODEL
 
     # Google is primary when enabled; Groq is fallback
-    if GOOGLE_FALLBACK_ENABLED:
+    if GOOGLE_PRIMARY_ENABLED:
         try:
             return await _call_google(messages)
-        except openai.RateLimitError:
+        except openai.RateLimitError as e:
             _warn_rate_limit("gemini")
         except (openai.APIError, openai.APIConnectionError) as e:
-            logger.warning("Google API error: %s, falling back to Groq", type(e).__name__)
+            logger.warning("gemini_api_error: %s — falling back to Groq", type(e).__name__)
 
     # Groq: either primary (if Google disabled) or fallback
     try:
@@ -145,10 +132,6 @@ async def call_llm(
         p = getattr(usage, "prompt_tokens", 0) or 0
         c = getattr(usage, "completion_tokens", 0) or 0
         t = getattr(usage, "total_tokens", 0) or 0
-        logger.info(
-            "groq_usage model=%s prompt=%s completion=%s total=%s msgs=%d",
-            chosen_model, p, c, t, len(messages),
-        )
         with _usage_lock:
             _reset_if_new_day(_groq_day)
             _groq_day.tokens += t
@@ -175,10 +158,6 @@ async def _call_google(messages: list[dict[str, Any]], model: str | None = None)
         p = getattr(usage, "prompt_tokens", 0) or 0
         c = getattr(usage, "completion_tokens", 0) or 0
         t = getattr(usage, "total_tokens", 0) or 0
-        logger.info(
-            "gemini_usage model=%s prompt=%s completion=%s total=%s msgs=%d",
-            chosen_model, p, c, t, len(messages),
-        )
         with _usage_lock:
             _reset_if_new_day(_google_day)
             _google_day.tokens += t

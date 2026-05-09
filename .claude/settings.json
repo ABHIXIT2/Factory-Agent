@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff format *)",
+      "Bash(python -c ' *)",
+      "Bash(python3 -m py_compile src/*.py)",
+      "Bash(python -m py_compile src/tools.py src/db.py src/config.py src/agent.py src/token_store.py)",
+      "Bash(python -m pytest *)",
+      "Bash(grep *)",
+      "Bash(cd 'c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent' && rm prompts/tool_descriptions/*.md && rm -d prompts/tool_descriptions)",
+      "Bash(awk *)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(git *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(find *)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(wc *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(ls \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\prompts\")",
+      "Bash(ls \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\ui_strings\")",
+      "Bash(grep -n \"MAX_PRODUCTION_RETURNED\\\\|MAX_CASH_FLOW_RETURNED\" \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\src\\\\config.py\")",
+      "Bash(grep -n \"not_found\\\\|suggested_action\" \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\src\\\\tools.py\")",
+      "Bash(grep -n \"not_found\\\\|suggested_action\" \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\src\\\\agent.py\")",
+      "Bash(Select-Object Name)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\docs\\\\plans\" -Force)",
+      "Bash(python3 -c \"from supabase.lib.exceptions import APIError; print\\(APIError.__mro__\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -c \"import supabase; print\\(supabase.__version__\\)\")",
+      "Bash(python -c \"from postgrest.exceptions import APIError; print\\(APIError.__mro__\\)\")",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Read(**)",
+      "Glob(*)",
+      "Grep(*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Admin\\Desktop\\Factory Agent\\prompts\\tool_descriptions"
+    ]
+  }
+}

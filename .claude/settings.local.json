@@ -21,7 +21,18 @@
       "Bash(python -m pytest tests/ -x)",
       "Bash(python -m pytest tests/test_agent.py::test_plain_text_response -xvs)",
       "Bash(python -m pytest tests/test_selection.py::test_clear_user_removes_all -xvs)",
-      "Bash(python -m pytest tests/test_bot.py::test_handle_text_message_plain -xvs)"
+      "Bash(python -m pytest tests/test_bot.py::test_handle_text_message_plain -xvs)",
+      "Bash(python -c \"from src import agent, bot, render, pending, selection, session, providers, token_store; print\\('✅ All imports successful'\\)\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" -Recurse -Filter \"*.py\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(grep -n \"inject_selected_customer\" \"/mnt/c/Users/Admin/Desktop/Factory Agent/src/agent.py\")",
+      "Read(//mnt/c/Users/Admin/Desktop/Factory Agent/src/**)",
+      "Bash(python -c \"from postgrest.exceptions import APIError; import inspect; print\\(inspect.getsource\\(APIError\\)\\)\")",
+      "Bash(python -c \"from postgrest.exceptions import APIError; e = APIError\\({'message':'test','code':'42501','details':'permission denied','hint':'check rls'}\\); print\\(dir\\(e\\)\\); print\\(vars\\(e\\)\\)\")",
+      "Bash(python -c \"import groq; print\\(groq.__version__\\); from groq import GroqError, RateLimitError, APIConnectionError, AuthenticationError; print\\('RateLimitError bases:', RateLimitError.__bases__\\); print\\('GroqError fields:', dir\\(GroqError\\)\\)\")",
+      "Bash(python -c \"import postgrest; help\\(postgrest.exceptions.APIError\\)\")",
+      "Bash(python -c \"from src import logger as l; print\\(dir\\(l\\)\\)\")",
+      "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\(-not $pythonPath\\) { $pythonPath = \\(Get-Command python3 -ErrorAction SilentlyContinue\\).Source }; if \\($pythonPath\\) { & $pythonPath -m py_compile 'c:/Users/Admin/Desktop/Factory Agent/src/logger.py', 'c:/Users/Admin/Desktop/Factory Agent/src/tools.py', 'c:/Users/Admin/Desktop/Factory Agent/src/db.py', 'c:/Users/Admin/Desktop/Factory Agent/src/render.py'; \"Syntax check passed\" } else { \"Python not found\" })"
     ]
   }
 }
