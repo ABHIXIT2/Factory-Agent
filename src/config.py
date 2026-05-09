@@ -111,12 +111,15 @@ _SYSTEM_PROMPT_TEMPLATE = _load_system_prompt()
 
 
 def get_system_prompt() -> str:
-    """Generate system prompt with today's date (called per LLM turn, not at module load)."""
+    """Generate system prompt with today's date (called per LLM turn, not at module load).
+
+    Uses string.replace() instead of str.format() to avoid interpreting the literal
+    {json} examples in the trajectory section as format placeholders.
+    """
     today_iso = _today_iso()
-    return _SYSTEM_PROMPT_TEMPLATE.format(
-        today_iso=today_iso,
-        timezone_name=TIMEZONE_NAME,
-    )
+    return (_SYSTEM_PROMPT_TEMPLATE
+            .replace("{today_iso}", today_iso)
+            .replace("{timezone_name}", TIMEZONE_NAME))
 def _load_tool_descriptions() -> dict[str, str]:
     """Load all tool descriptions from prompts/tool_descriptions.md once.
 
