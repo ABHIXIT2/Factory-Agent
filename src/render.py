@@ -125,11 +125,12 @@ def _render_closing(
                          error="generic")
 
     try:
+        # Merge arguments and result; result wins on conflicts
+        template_vars = {**(call.arguments or {}), **parsed}
         return render_tool(
             call.name, "closing", user_lang,
             customer_label=_customer_label(call.arguments, customer_names),
-            **(call.arguments or {}),
-            **parsed
+            **template_vars
         )
     except KeyError as e:
         logger.warning("closing template not found for %s: %s", call.name, e)
