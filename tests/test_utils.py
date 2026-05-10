@@ -163,16 +163,16 @@ def test_detect_user_lang_devanagari():
 
 
 def test_detect_user_lang_hinglish_roman():
-    assert detect_user_lang("Sharma ko 50kg de do") == "hi-Latn"
+    assert detect_user_lang("Sharma ko 50kg de do") == "hi-Hind"
 
 
 def test_detect_user_lang_english():
-    assert detect_user_lang("Show me the balances") == "hi-Latn"
+    assert detect_user_lang("Show me the balances") == "en"
 
 
 def test_detect_user_lang_empty_falls_back_to_latn():
-    assert detect_user_lang("") == "hi-Latn"
-    assert detect_user_lang(None) == "hi-Latn"
+    assert detect_user_lang("") == "hi-Hind"
+    assert detect_user_lang(None) == "hi-Hind"
 
 
 def test_detect_user_lang_mixed_picks_devanagari():

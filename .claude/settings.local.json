@@ -32,7 +32,9 @@
       "Bash(python -c \"import groq; print\\(groq.__version__\\); from groq import GroqError, RateLimitError, APIConnectionError, AuthenticationError; print\\('RateLimitError bases:', RateLimitError.__bases__\\); print\\('GroqError fields:', dir\\(GroqError\\)\\)\")",
       "Bash(python -c \"import postgrest; help\\(postgrest.exceptions.APIError\\)\")",
       "Bash(python -c \"from src import logger as l; print\\(dir\\(l\\)\\)\")",
-      "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\(-not $pythonPath\\) { $pythonPath = \\(Get-Command python3 -ErrorAction SilentlyContinue\\).Source }; if \\($pythonPath\\) { & $pythonPath -m py_compile 'c:/Users/Admin/Desktop/Factory Agent/src/logger.py', 'c:/Users/Admin/Desktop/Factory Agent/src/tools.py', 'c:/Users/Admin/Desktop/Factory Agent/src/db.py', 'c:/Users/Admin/Desktop/Factory Agent/src/render.py'; \"Syntax check passed\" } else { \"Python not found\" })"
+      "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\(-not $pythonPath\\) { $pythonPath = \\(Get-Command python3 -ErrorAction SilentlyContinue\\).Source }; if \\($pythonPath\\) { & $pythonPath -m py_compile 'c:/Users/Admin/Desktop/Factory Agent/src/logger.py', 'c:/Users/Admin/Desktop/Factory Agent/src/tools.py', 'c:/Users/Admin/Desktop/Factory Agent/src/db.py', 'c:/Users/Admin/Desktop/Factory Agent/src/render.py'; \"Syntax check passed\" } else { \"Python not found\" })",
+      "Bash(ls \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)",
+      "Bash(dir \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)"
     ]
   }
 }

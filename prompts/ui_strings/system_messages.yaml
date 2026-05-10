@@ -1,0 +1,20 @@
+# System messages, buttons, and error messages
+# Generic messages used across the bot
+
+buttons:
+  confirm_yes: "✅ Haan, save"
+  confirm_no: "❌ Nahi"
+
+selection_prompt: "🔍 *Multiple customers found. Please select one:*"
+selection_prompt_hi: "🔍 *कई ग्राहक मिले। नीचे से चुनिए:*"
+
+messages:
+  cancellation: "❌ Cancelled. Kuch save nahi hua."
+  rate_limit: "⏳ Apne bahut messages bhej diye. Kripiya ruk ke phir bhejein (~{retry}s)."
+  parse_error: "❌ Sorry, main samajh nahi paya. Phir se try karein."
+  generic_error: "❌ Kuch gadbad ho gayi. kripeya phir se try karein."
+  max_iterations: "⏱️ Bahut steps ho gaye. assan task dijiye."
+  save_failed: "❌ Save nahi ho paya: {error}"
+  saved_generic: "✅ Saved."
+
+confirmation_preamble: "⬇️ नीचे दिए बटन से confirm kijiye:"

@@ -249,6 +249,36 @@ def inject_selected_customer(user_id: int, customer_id: int, shop_name: str) -> 
     set_history(user_id, history)
 
 
+def inject_created_customer(user_id: int, customer_id: int, shop_name: str) -> None:
+    """Inject a synthetic create_customer result into session history so the
+    next agent_loop call knows which customer was just created without querying the DB."""
+    history = get_history(user_id)
+    synthetic_id = f"created_{customer_id}"
+    history.append({
+        "role": "assistant",
+        "content": f"✅ Customer created: {shop_name}. Continuing with your request...",
+        "tool_calls": [{
+            "id": synthetic_id,
+            "type": "function",
+            "function": {
+                "name": "create_customer",
+                "arguments": json.dumps({"shop_name": shop_name}),
+            },
+        }],
+    })
+    history.append({
+        "role": "tool",
+        "tool_call_id": synthetic_id,
+        "name": "create_customer",
+        "content": json.dumps({
+            "ok": True,
+            "customer_id": customer_id,
+            "shop_name": shop_name,
+        }),
+    })
+    set_history(user_id, history)
+
+
 def check_rate_limit(user_id: int) -> tuple[bool, int]:
     """Check sliding-window rate limit. Returns (allowed, retry_after_seconds)."""
     now = time.monotonic()

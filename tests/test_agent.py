@@ -398,7 +398,7 @@ async def test_continue_after_confirmation_uses_template_no_llm_call():
             arguments={"customer_id": 1, "qty_kg": 50, "rate_per_kg": 120},
         )],
         summary="...",
-        extras={"user_lang": "hi-Latn", "customer_names": {1: "Sharma"}},
+        extras={"user_lang": "hi-Hind", "customer_names": {1: "Sharma"}},
     )
 
     async def fake_execute(_name, _args):
@@ -448,7 +448,7 @@ async def test_continue_after_confirmation_templates_failure():
             id="tc1", name="save_sale", arguments={"customer_id": 1, "qty_kg": 1, "rate_per_kg": 1},
         )],
         summary="...",
-        extras={"user_lang": "hi-Latn"},
+        extras={"user_lang": "hi-Hind"},
     )
 
     async def fake_execute(_n, _a):

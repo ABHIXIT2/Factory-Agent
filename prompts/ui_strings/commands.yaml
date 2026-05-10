@@ -1,0 +1,39 @@
+# Command responses for /start, /help, /status, /clear
+
+start: |
+  🏭 *Labbu* activated!
+
+  नमस्ते *{first_name}*! I'm Labbu, your factory operations assistant.
+
+  I can help you with:
+  - 📦 Sales & customer credit
+  - 💰 Production & cash flow
+  - 💳 Outstanding balances
+
+  Just send me a message in Hindi, Hinglish, or English.
+
+  Type /help for available commands.
+
+help: |
+  *Available Commands*
+
+  /start — Initialize bot
+  /help — Show this help
+  /status — Check database connection
+  /clear — Clear conversation history
+
+  *Quick Examples*
+
+  "Sharma को 50 kg दिया 120 रेट पर"
+  (Record sale: 50 kg @ ₹120 to Sharma)
+
+  "बकाया देखो" or "Show balances"
+  (Get all outstanding balances)
+
+  "Gupta की payment 5000 दी"
+  (Record payment: ₹5,000 from Gupta)
+
+status_connected: "Database: ✅ Connected"
+status_disconnected: "Database: ❌ Disconnected"
+
+clear: "✅ Conversation history cleared."

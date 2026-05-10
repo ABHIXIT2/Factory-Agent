@@ -173,13 +173,45 @@ def format_amount(amount) -> str:
 # Devanagari script range covers Hindi, Marathi, Sanskrit etc.
 _DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
 
+# Common English indicator words to distinguish English from Hinglish
+_ENGLISH_WORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be",
+    "and", "or", "but", "for", "in", "of", "to", "from",
+    "at", "by", "with", "on", "as", "this", "that",
+    "customer", "sale", "payment", "shop", "owner", "phone",
+    "amount", "date", "rate", "kg", "qty", "quantity",
+    "paid", "credit", "balance", "cash", "online",
+    "today", "yesterday", "tomorrow", "date",
+}
+
 
 def detect_user_lang(text: str | None) -> str:
-    """Return 'hi-Deva' if the text contains any Devanagari character,
-    else 'hi-Latn' (covers Hinglish + plain English; both render fine in
-    Roman-script templates)."""
+    """
+    Detect user language/script and return language code.
+
+    Returns:
+    - 'hi-Deva': Devanagari script detected (Hindi/Marathi/Sanskrit in native script)
+    - 'en': English language detected (based on English words)
+    - 'hi-Hind': Hinglish/Roman Hindi (default for mixed or unclassified Roman text)
+    """
     if not text:
-        return "hi-Latn"
-    return "hi-Deva" if _DEVANAGARI_RE.search(text) else "hi-Latn"
+        return "hi-Hind"
+
+    # Check for Devanagari script first (highest priority)
+    if _DEVANAGARI_RE.search(text):
+        return "hi-Deva"
+
+    # Check for English language indicators
+    # Split into words and check for English indicators
+    words_lower = re.findall(r"\b\w+\b", text.lower())
+    if words_lower:
+        # Count English indicator words as a heuristic
+        english_count = sum(1 for w in words_lower if w in _ENGLISH_WORDS)
+        # If >20% of recognized words are English indicators, classify as English
+        if english_count > 0 and english_count / len(words_lower) > 0.2:
+            return "en"
+
+    # Default: Hinglish or Roman Hindi (mixed or non-English Roman)
+    return "hi-Hind"
 
 

@@ -25,7 +25,7 @@ from src.config import (
 from src.providers import call_llm
 from src.session import (
     get_history, set_history, clear_history, check_rate_limit,
-    _compact_tool_result,
+    _compact_tool_result, inject_created_customer,
 )
 from src.tools import execute_tool
 from src import pending, selection
@@ -146,6 +146,7 @@ async def agent_loop(
     user_id: int,
     username: str | None = None,
     first_name: str | None = None,
+    extras: dict[str, Any] | None = None,
 ) -> AgentResult:
     """
     Run one user turn through the LLM.
@@ -249,14 +250,15 @@ async def agent_loop(
                 ]
                 write_calls = [c for c in pending_calls if c.name in WRITE_TOOLS]
                 customer_names = _extract_customer_names(messages)
-                summary = _build_summary(write_calls, customer_names)
                 user_lang = detect_user_lang(user_message)
+                summary = _build_summary(write_calls, customer_names, user_lang)
                 token = pending.put(pending.PendingAction(
                     user_id=user_id,
                     assistant_message=assistant_msg,
                     tool_calls=pending_calls,
                     summary=summary,
                     extras={
+                        **(extras or {}),
                         "user_lang": user_lang,
                         "customer_names": customer_names,
                         "original_message": user_message,
@@ -334,7 +336,9 @@ async def agent_loop(
                 sel_token, customer_options, user_lang = selection_prompt
                 if user_lang == "hi-Deva":
                     selection_text = "🔍 *कई ग्राहक मिले। नीचे से चुनिए:*"
-                else:
+                elif user_lang == "en":
+                    selection_text = "🔍 *Multiple customers found. Please select:*"
+                else:  # hi-Hind
                     selection_text = "🔍 *Multiple customers found. Please select one:*"
                 options_dicts = [{"id": opt.id, "shop_name": opt.shop_name} for opt in customer_options]
                 log_utils.log_selection_ui(user_id, options_dicts)
@@ -377,7 +381,7 @@ async def continue_after_confirmation(
     messages.append(action.assistant_message)
 
     extras = action.extras or {}
-    user_lang = extras.get("user_lang", "hi-Latn")
+    user_lang = extras.get("user_lang", "hi-Hind")
     customer_names = dict(extras.get("customer_names") or {})
     customer_names.update(_extract_customer_names(messages))
 
@@ -407,6 +411,12 @@ async def continue_after_confirmation(
     # itself a customer creation, re-run it (e.g., "Sharma ko sale karo" → search failed
     # → create Sharma → re-run sale). Skip if user explicitly asked for create_customer.
     if any(c.name == "create_customer" for c in action.tool_calls):
+        # Guard against cascading re-entries: if this is already a chained re-run, don't chain again
+        if extras.get("_chained"):
+            messages.append({"role": "assistant", "content": text})
+            set_history(user_id, [m for m in messages if m["role"] != "system"])
+            return AgentResult(text=text)
+
         orig_msg = extras.get("original_message", "")
         # Only chain if original message doesn't look like a customer creation request
         is_explicit_create = (
@@ -420,11 +430,29 @@ async def continue_after_confirmation(
             messages.append({"role": "assistant", "content": text})
             set_history(user_id, [m for m in messages if m["role"] != "system"])
 
+            # Extract customer_id from the tool result to inject it before re-run
+            customer_id = None
+            shop_name = None
+            for call, tool_result in zip(action.tool_calls, action.tool_results or []):
+                if call.name == "create_customer":
+                    try:
+                        result_data = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                        customer_id = result_data.get("customer_id")
+                        shop_name = call.arguments.get("shop_name") if call.arguments else None
+                        break
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        pass
+
+            # Inject the newly-created customer into history before re-running the original message
+            if customer_id and shop_name:
+                inject_created_customer(user_id, customer_id, shop_name)
+
             follow_up = await agent_loop(
                 user_message=orig_msg,
                 user_id=user_id,
                 username=extras.get("username", ""),
                 first_name=extras.get("first_name", ""),
+                extras={**extras, "_chained": True},
             )
             combined_text = creation_text + "\n\n" + follow_up.text
             return AgentResult(text=combined_text, confirmation=follow_up.confirmation)

@@ -1,0 +1,155 @@
+# Tool-specific confirmation and closing message templates
+# Uses Jinja2 templating: {{ variable }}, {% if ... %}
+# Built-in context: customer_label, format_amount (function)
+
+tools:
+  save_sale:
+    icon: "📦"
+    action:
+      en: "Sale"
+      hi-Deva: "बिक्री"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        {{ customer_label }}
+        Qty: *{{ qty_kg }} kg* @ *₹{{ rate_per_kg }}/kg*
+        Total: *{{ format_amount(total_bill | float) }}*
+        Date: `{{ sale_date }}`
+        Payment: *{{ payment_status }}*{% if payment_mode %} ({{ payment_mode }}){% endif %}
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        {{ customer_label }}
+        मात्रा: *{{ qty_kg }} किलो* @ *₹{{ rate_per_kg }}/किलो*
+        कुल: *{{ format_amount(total_bill | float) }}*
+        दिनांक: `{{ sale_date }}`
+        भुगतान: *{{ payment_status }}*{% if payment_mode %} ({{ payment_mode }}){% endif %}
+    closing:
+      en: "*{{ action }} saved:* {{ qty_kg }} kg @ ₹{{ rate_per_kg }}/kg = *{{ format_amount(total_bill | float) }}*. Customer: *{{ customer_label }}*."
+      hi-Deva: "*{{ action }} सेव हो गई:* {{ qty_kg }} किलो @ ₹{{ rate_per_kg }}/किलो = *{{ format_amount(total_bill | float) }}*. {{ customer_label }} को।"
+    success_emoji: "✅"
+
+  record_payment:
+    icon: "💳"
+    action:
+      en: "Payment"
+      hi-Deva: "भुगतान"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        {{ customer_label }}
+        Amount: *{{ format_amount(amount | float) }}*
+        Date: `{{ payment_date }}`
+        Mode: *{{ payment_mode or "cash" }}*
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        {{ customer_label }}
+        रकम: *{{ format_amount(amount | float) }}*
+        दिनांक: `{{ payment_date }}`
+        तरीका: *{{ payment_mode or "cash" }}*
+    closing:
+      en: "*{{ action }} saved:* *{{ format_amount(amount | float) }}* from *{{ customer_label }}*. New balance: *{{ format_amount(new_balance | float) }}*."
+      hi-Deva: "*{{ action }} सेव हो गया:* *{{ format_amount(amount | float) }}* — {{ customer_label }} से। नया बकाया: *{{ format_amount(new_balance | float) }}*।"
+    success_emoji: "✅"
+
+  save_production:
+    icon: "🏭"
+    action:
+      en: "Production"
+      hi-Deva: "उत्पादन"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        Date: `{{ prod_date }}`
+        Qty: *{{ total_produced_kg }} kg*
+        Packets: *{{ total_packets }}*
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        दिनांक: `{{ prod_date }}`
+        मात्रा: *{{ total_produced_kg }} किलो*
+        पैकेट: *{{ total_packets }}*
+    closing:
+      en: "*{{ action }} saved:* *{{ total_produced_kg }} kg*, *{{ total_packets }}* packets (`{{ prod_date }}`)."
+      hi-Deva: "*{{ action }} सेव हो गया:* *{{ total_produced_kg }} किलो*, *{{ total_packets }}* पैकेट (`{{ prod_date }}`)।"
+    success_emoji: "✅"
+
+  save_cash_flow:
+    icon_in: "💰"
+    icon_out: "💸"
+    action:
+      en: "Cash {{ 'in' if flow_type == 'in' else 'out' }}"
+      hi-Deva: "{{ 'कैश जमा' if flow_type == 'in' else 'कैश खर्च' }}"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        Date: `{{ flow_date }}`
+        Amount: *{{ format_amount(amount | float) }}*
+        Category: *{{ category }}*
+        Description: {{ description }}
+        Party: {{ party or "–" }}
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        दिनांक: `{{ flow_date }}`
+        रकम: *{{ format_amount(amount | float) }}*
+        श्रेणी: *{{ category }}*
+        विवरण: {{ description }}
+        पार्टी: {{ party or "–" }}
+    closing:
+      en: "*{{ action }}:* *{{ format_amount(amount | float) }}* ({{ category }})."
+      hi-Deva: "*{{ action }}:* *{{ format_amount(amount | float) }}* ({{ category }})।"
+    success_emoji: "✅"
+
+  create_customer:
+    icon: "👤"
+    action:
+      en: "New customer"
+      hi-Deva: "नया ग्राहक"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        Shop: *{{ shop_name }}*
+        Owner: {{ owner_name or "–" }}
+        Phone: {{ owner_phone or "–" }}
+        Credit limit: *{{ format_amount(credit_limit | float) }}*
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        दुकान: *{{ shop_name }}*
+        मालिक: {{ owner_name or "–" }}
+        फोन: {{ owner_phone or "–" }}
+        क्रेडिट सीमा: *{{ format_amount(credit_limit | float) }}*
+    closing:
+      en: "*{{ action }} added:* *{{ shop_name }}* (id: `{{ customer_id }}`)."
+      hi-Deva: "*{{ action }} जुड़ गया:* *{{ shop_name }}* (id: `{{ customer_id }}`)।"
+    success_emoji: "✅"
+
+  delete_record:
+    icon: "🗑️"
+    action:
+      en: "Delete"
+      hi-Deva: "डिलीट"
+    confirmation:
+      en: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        Table: `{{ table }}`
+        Record ID: `{{ record_id }}`
+        Reason: {{ reason }}
+      hi-Deva: |
+        *{{ action }} confirm kijiye:*
+        ─────────────────
+        तालिका: `{{ table }}`
+        रिकॉर्ड ID: `{{ record_id }}`
+        कारण: {{ reason }}
+    closing:
+      en: "*Record {{ record_id }} deleted* from `{{ table }}`."
+      hi-Deva: "*रिकॉर्ड {{ record_id }} डिलीट हो गया* (`{{ table }}` से)।"
+    success_emoji: "✅"
