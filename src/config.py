@@ -62,7 +62,7 @@ GOOGLE_PRIMARY_ENABLED: bool = bool(GOOGLE_AI_STUDIO_KEY)
 CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
 if CEREBRAS_API_KEY and CEREBRAS_API_KEY.lower() in ("none", "test", "fake", "placeholder"):
     raise ValueError("CEREBRAS_API_KEY is set to a placeholder. Set a real key or leave empty.")
-CEREBRAS_MODEL: str = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
+CEREBRAS_MODEL: str = os.getenv("CEREBRAS_MODEL", "qwen-3-235b-a22b-instruct-2507")
 CEREBRAS_PRIMARY_ENABLED: bool = bool(CEREBRAS_API_KEY)
 
 # Daily token budgets — used only for the terminal usage bars; not enforced.
