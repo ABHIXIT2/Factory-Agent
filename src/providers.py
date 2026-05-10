@@ -10,6 +10,7 @@ import groq as groq_sdk
 import openai
 from openai import AsyncOpenAI
 import asyncio
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.config import (
     GROQ_API_KEY, GOOGLE_AI_STUDIO_KEY, GOOGLE_MODEL, GOOGLE_PRIMARY_ENABLED,
@@ -96,6 +97,23 @@ def _warn_rate_limit(provider: str) -> None:
     pass
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=retry_if_exception_type(groq_sdk.RateLimitError),
+)
+def _call_groq_with_retry(messages: list[dict[str, Any]], model: str, temperature: float) -> Any:
+    """Call Groq with retry logic for rate limits. Runs in thread context."""
+    return _client.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=TOOLS,
+        tool_choice="auto",
+        max_tokens=GROQ_MAX_TOKENS,
+        temperature=temperature,
+    )
+
+
 async def call_llm(
     messages: list[dict[str, Any]], model: str | None = None
 ) -> Any:
@@ -109,23 +127,27 @@ async def call_llm(
         try:
             return await _call_google(messages)
         except openai.RateLimitError as e:
+            logger.info("Provider fallback: gemini_rate_limit → groq")
             _warn_rate_limit("gemini")
         except (openai.APIError, openai.APIConnectionError) as e:
-            logger.warning("gemini_api_error: %s — falling back to Groq", type(e).__name__)
+            logger.info("Provider fallback: gemini_api_error → groq (error: %s)", type(e).__name__)
 
     # Groq: either primary (if Google disabled) or fallback
-    try:
-        response = await asyncio.to_thread(
-            _client.chat.completions.create,
-            model=chosen_model,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            max_tokens=GROQ_MAX_TOKENS,
-            temperature=GROQ_TEMPERATURE,
+    logger.info("Calling Groq with retry logic enabled")
+    response = await asyncio.to_thread(
+        _call_groq_with_retry,
+        messages,
+        chosen_model,
+        GROQ_TEMPERATURE,
+    )
+
+    finish_reason = getattr(response.choices[0], "finish_reason", None)
+    if finish_reason == "length":
+        logger.warning(
+            "Response truncated by max_tokens=%d for model=%s. "
+            "Consider raising GROQ_MAX_TOKENS.",
+            GROQ_MAX_TOKENS, chosen_model
         )
-    except groq_sdk.RateLimitError:
-        raise
 
     usage = getattr(response, "usage", None)
     if usage is not None:

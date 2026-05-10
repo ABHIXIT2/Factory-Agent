@@ -47,7 +47,7 @@ TIMEZONE = pytz.timezone(TIMEZONE_NAME)
 
 GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_MODEL_FAST: str = os.getenv("GROQ_MODEL_FAST", "llama-3.1-8b-instant")
-GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "512"))
+GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "1024"))
 GROQ_TEMPERATURE: float = float(os.getenv("GROQ_TEMPERATURE", "0.3"))
 
 # Google Gemini (primary provider via OpenAI-compatible endpoint)
@@ -63,9 +63,9 @@ GROQ_DAILY_TOKEN_LIMIT: int = int(os.getenv("GROQ_DAILY_TOKEN_LIMIT", "100000"))
 GOOGLE_DAILY_TOKEN_LIMIT: int = int(os.getenv("GOOGLE_DAILY_TOKEN_LIMIT", "1000000"))
 
 # Agent loop limits
-MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "5"))
+MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "8"))
 CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", "10"))
-HISTORY_COMPACT_THRESHOLD: int = int(os.getenv("HISTORY_COMPACT_THRESHOLD", "6"))
+HISTORY_COMPACT_THRESHOLD: int = int(os.getenv("HISTORY_COMPACT_THRESHOLD", "10"))
 
 # Per-message cap for tool results stored in persisted history. The full
 # result is always shown to the LLM in-flight; we only compact the copy
