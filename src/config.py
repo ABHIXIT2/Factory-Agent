@@ -50,17 +50,25 @@ GROQ_MODEL_FAST: str = os.getenv("GROQ_MODEL_FAST", "llama-3.1-8b-instant")
 GROQ_MAX_TOKENS: int = int(os.getenv("GROQ_MAX_TOKENS", "1024"))
 GROQ_TEMPERATURE: float = float(os.getenv("GROQ_TEMPERATURE", "0.3"))
 
-# Google Gemini (primary provider via OpenAI-compatible endpoint)
-# Set GOOGLE_AI_STUDIO_KEY in .env to enable. When enabled, Google is primary, Groq is fallback.
+# Google Gemini (via OpenAI-compatible endpoint)
 GOOGLE_AI_STUDIO_KEY: str = os.getenv("GOOGLE_AI_STUDIO_KEY", "")
 if GOOGLE_AI_STUDIO_KEY and GOOGLE_AI_STUDIO_KEY.lower() in ("none", "test", "fake", "placeholder"):
     raise ValueError("GOOGLE_AI_STUDIO_KEY is set to a placeholder. Set a real key or leave empty.")
 GOOGLE_MODEL: str = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
 GOOGLE_PRIMARY_ENABLED: bool = bool(GOOGLE_AI_STUDIO_KEY)
 
+# Cerebras (via OpenAI-compatible endpoint). When set, runs first in the fallback chain:
+# Cerebras → Gemini → Groq.
+CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
+if CEREBRAS_API_KEY and CEREBRAS_API_KEY.lower() in ("none", "test", "fake", "placeholder"):
+    raise ValueError("CEREBRAS_API_KEY is set to a placeholder. Set a real key or leave empty.")
+CEREBRAS_MODEL: str = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
+CEREBRAS_PRIMARY_ENABLED: bool = bool(CEREBRAS_API_KEY)
+
 # Daily token budgets — used only for the terminal usage bars; not enforced.
 GROQ_DAILY_TOKEN_LIMIT: int = int(os.getenv("GROQ_DAILY_TOKEN_LIMIT", "100000"))
 GOOGLE_DAILY_TOKEN_LIMIT: int = int(os.getenv("GOOGLE_DAILY_TOKEN_LIMIT", "1000000"))
+CEREBRAS_DAILY_TOKEN_LIMIT: int = int(os.getenv("CEREBRAS_DAILY_TOKEN_LIMIT", "1000000"))
 
 # Agent loop limits
 MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "8"))
