@@ -562,3 +562,37 @@ async def test_fast_model_empty_response_falls_back_to_main(monkeypatch):
 
     assert captured == ["test-70b", "test-70b"]
     assert result.text == "Recovered."
+
+
+@pytest.mark.asyncio
+async def test_tool_error_ok_false_agent_continues(monkeypatch):
+    """When tool returns ok=false, agent explains error and continues (no crash)."""
+    user_id = 99
+
+    tool_response_error = json.dumps({"ok": False, "error": "customer_not_found", "detail": "customer id 3 deleted"})
+
+    # Iteration 1: agent calls tool, gets error
+    iter1_response = _make_response(tool_calls=[
+        _make_tool_call("tc1", "search_customer", {"name_fragment": "Sharma"})
+    ])
+
+    # Iteration 2: agent processes error, generates human-readable reply
+    iter2_response = _make_response(content="Hm, customer delete ho gaya. Doosra naam se search karein?")
+
+    responses = [iter1_response, iter2_response]
+
+    async def fake_call(_m, model=None):
+        return responses.pop(0)
+
+    async def fake_execute(_n, _a):
+        # First call returns error; subsequent calls succeed
+        if not responses:  # After both LLM calls
+            return "{}"
+        return tool_response_error
+
+    with patch.object(agent, "call_llm", side_effect=fake_call), \
+         patch.object(agent, "execute_tool", side_effect=fake_execute):
+        result = await agent.agent_loop("Sharma customer search", user_id=user_id)
+
+    # Agent should recover and return the error explanation
+    assert result.text == "Hm, customer delete ho gaya. Doosra naam se search karein?"
