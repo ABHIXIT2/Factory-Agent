@@ -325,6 +325,20 @@ async def agent_loop(
                     except (json.JSONDecodeError, TypeError):
                         pass
 
+                # Try to render query result via template (skip LLM for deterministic formatting)
+                read_only_queries = {
+                    "query_customers", "query_sales", "query_production",
+                    "query_cash_flow", "query_credit_ledger"
+                }
+                if tc.function.name in read_only_queries:
+                    from src.render import _render_query_result
+                    user_lang = detect_user_lang(user_message)
+                    rendered = _render_query_result(tc.function.name, tool_result, user_lang)
+                    if rendered is not None:
+                        # Template found and rendering succeeded — use it directly
+                        final_text = rendered
+                        break  # Exit loop; skip further LLM processing
+
                 compacted_result = _compact_tool_result(tool_result)
                 cleaned_result = _clean_tool_result(tc.function.name, compacted_result)
                 messages.append({
