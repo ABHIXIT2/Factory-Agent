@@ -463,7 +463,7 @@ TOOLS = [
 # ============================================================================
 
 def _load_message_templates() -> dict:
-    """Load prompts/ui_strings/messages.yaml with tool-specific templates."""
+    """Load prompts/ui_strings/messages.yaml — single consolidated registry."""
     import pathlib
     import yaml
     yaml_file = pathlib.Path(__file__).parent.parent / "prompts" / "ui_strings" / "messages.yaml"
@@ -472,33 +472,8 @@ def _load_message_templates() -> dict:
         return {}
     with open(yaml_file, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    return data.get("tools", {})
-
-
-def _load_system_messages() -> dict:
-    """Load prompts/ui_strings/system_messages.yaml with buttons and error messages."""
-    import pathlib
-    import yaml
-    yaml_file = pathlib.Path(__file__).parent.parent / "prompts" / "ui_strings" / "system_messages.yaml"
-    if not yaml_file.exists():
-        logger.warning("system_messages.yaml not found at %s, using empty dict", yaml_file)
-        return {}
-    with open(yaml_file, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def _load_command_messages() -> dict:
-    """Load prompts/ui_strings/commands.yaml with /start, /help, /status, /clear responses."""
-    import pathlib
-    import yaml
-    yaml_file = pathlib.Path(__file__).parent.parent / "prompts" / "ui_strings" / "commands.yaml"
-    if not yaml_file.exists():
-        logger.warning("commands.yaml not found at %s, using empty dict", yaml_file)
-        return {}
-    with open(yaml_file, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    return data
 
 
 MESSAGE_TEMPLATES = _load_message_templates()
-SYSTEM_MESSAGES = _load_system_messages()
-COMMAND_MESSAGES = _load_command_messages()
+BRANDING = MESSAGE_TEMPLATES.get("branding", {})

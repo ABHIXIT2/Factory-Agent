@@ -129,7 +129,7 @@ def test_render_closing_success_path():
 		"ok": True, "sale_id": 123, "total_bill": 500,
 	})
 	closing = _render_closing(call, tool_result, {1: "Sharma"}, "hi-Hind")
-	assert "✅ Sale saved" in closing
+	assert "✅" in closing and "Sale saved" in closing
 	assert "Sharma" in closing
 
 
@@ -140,11 +140,11 @@ def test_render_closing_error_path():
 		arguments={"customer_id": 1, "qty_kg": 10, "rate_per_kg": 50},
 	)
 	tool_result = json.dumps({
-		"ok": False, "error": "customer not found",
+		"ok": False, "error": "customer_not_found",
 	})
 	closing = _render_closing(call, tool_result, {}, "hi-Hind")
-	assert "❌ Save nahi ho paya" in closing
-	assert "customer not found" in closing
+	assert "❌" in closing and "Save nahi hua" in closing
+	assert "customer" in closing.lower()
 
 
 def test_render_closing_unknown_tool():

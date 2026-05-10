@@ -30,6 +30,7 @@ from src.session import (
 from src.tools import execute_tool
 from src import pending, selection
 from src.render import _build_summary, _render_closing, _extract_customer_names
+from src.messages import render
 from src.utils import detect_user_lang
 from src import logger as log_utils
 
@@ -162,7 +163,8 @@ async def agent_loop(
     allowed, retry = check_rate_limit(user_id)
     if not allowed:
         logger.warning("Rate limited user %s (retry after %ss)", user_id, retry)
-        return AgentResult(text=f"⏳ Apne bahut messages bhej diye. Kripiya ruk ke phir bhejein (~{retry}s).")
+        user_lang = detect_user_lang(user_message)
+        return AgentResult(text=render("system", "rate_limit_user", user_lang, retry=retry))
 
     log_utils.log_user_message(user_id, user_message)
 
@@ -198,7 +200,8 @@ async def agent_loop(
                     response = await call_llm(messages, model=GROQ_MODEL)
                 if not response.choices or not response.choices[0].message:
                     logger.error("Empty response from Groq for user %s", user_id)
-                    return AgentResult(text="❌ Sorry, main samajh nahi paya. Phir se try karein.")
+                    user_lang = detect_user_lang(user_message)
+                    return AgentResult(text=render("system", "parse_error", user_lang))
 
             message = response.choices[0].message
 
@@ -334,12 +337,7 @@ async def agent_loop(
             # If selection prompt was triggered, break out and return to bot
             if selection_prompt is not None:
                 sel_token, customer_options, user_lang = selection_prompt
-                if user_lang == "hi-Deva":
-                    selection_text = "🔍 *कई ग्राहक मिले। नीचे से चुनिए:*"
-                elif user_lang == "en":
-                    selection_text = "🔍 *Multiple customers found. Please select:*"
-                else:  # hi-Hind
-                    selection_text = "🔍 *Multiple customers found. Please select one:*"
+                selection_text = render("selection", "multiple_matches", user_lang)
                 options_dicts = [{"id": opt.id, "shop_name": opt.shop_name} for opt in customer_options]
                 log_utils.log_selection_ui(user_id, options_dicts)
                 final_text = selection_text
@@ -347,14 +345,17 @@ async def agent_loop(
                 break
         else:
             log_utils.log_agent_error(user_id, "max_iterations")
-            final_text = "⏱️ Bahut steps ho gaye. assan task dijiye."
+            user_lang_for_max = detect_user_lang(user_message)
+            final_text = render("system", "max_iterations", user_lang_for_max)
 
     except groq_sdk.RateLimitError as exc:
         log_utils.log_error(user_id, "RateLimitError", str(exc))
-        return AgentResult(text="⏳ Server busy. Please retry in a few moments.")
+        user_lang = detect_user_lang(user_message)
+        return AgentResult(text=render("system", "rate_limit_server", user_lang))
     except (groq_sdk.GroqError, openai.APIError, ValueError, json.JSONDecodeError) as exc:
         log_utils.log_error(user_id, type(exc).__name__, str(exc))
-        return AgentResult(text="❌ Kuch gadbad ho gayi. kripeya phir se try karein.")
+        user_lang = detect_user_lang(user_message)
+        return AgentResult(text=render("system", "generic_error", user_lang))
     except Exception as exc:
         log_utils.log_error(user_id, "UnexpectedError", str(exc))
         exc.add_note(f"user_id={user_id}, loop failure")
@@ -389,6 +390,7 @@ async def continue_after_confirmation(
     log_utils.log_confirmation_executed(user_id, tool_calls_to_execute)
 
     closing_lines: list[str] = []
+    tool_results: list[str] = []
     for call in action.tool_calls:
         try:
             tool_result = await execute_tool(call.name, dict(call.arguments))
@@ -396,6 +398,7 @@ async def continue_after_confirmation(
         except Exception as e:
             log_utils.log_error(user_id, f"ToolExecutionFailed", f"{call.name}: {str(e)}")
             tool_result = json.dumps({"ok": False, "error": "internal error"})
+        tool_results.append(tool_result)
         messages.append({
             "role": "tool",
             "tool_call_id": call.id,
@@ -433,7 +436,7 @@ async def continue_after_confirmation(
             # Extract customer_id from the tool result to inject it before re-run
             customer_id = None
             shop_name = None
-            for call, tool_result in zip(action.tool_calls, action.tool_results or []):
+            for call, tool_result in zip(action.tool_calls, tool_results):
                 if call.name == "create_customer":
                     try:
                         result_data = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
@@ -468,4 +471,5 @@ async def cancel_pending(user_id: int, action: pending.PendingAction) -> AgentRe
     history = get_history(user_id)
     history.append({"role": "assistant", "content": "(User cancelled the pending action.)"})
     set_history(user_id, history)
-    return AgentResult(text="❌ Cancelled. Kuch save nahi hua.")
+    user_lang = (action.extras or {}).get("user_lang", "hi-Hind")
+    return AgentResult(text=render("system", "cancellation", user_lang))

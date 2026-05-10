@@ -21,6 +21,8 @@ from src.agent import (
     continue_after_confirmation,
 )
 from src.session import inject_selected_customer
+from src.messages import render
+from src.utils import detect_user_lang
 from src import db, pending, selection
 from src import logger as log_utils
 
@@ -41,48 +43,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception:
         logger.exception("init_user failed for %s", user_id)
 
-    welcome_text = (
-        "🏭 *Labbu* activated!\n\n"
-        f"नमस्ते *{first_name}*! I'm Labbu, your factory operations assistant.\n\n"
-        "I can help you with:\n"
-        "- 📦 Sales & customer credit\n"
-        "- 💰 Production & cash flow\n"
-        "- 💳 Outstanding balances\n\n"
-        "Just send me a message in Hindi, Hinglish, or English.\n\n"
-        "Type /help for available commands.\n"
-    )
+    welcome_text = render("commands", "start", "hi-Hind", first_name=first_name)
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
     logger.info("User %s (%s) started bot", user_id, first_name)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    help_text = (
-        "*Available Commands*\n\n"
-        "/start — Initialize bot\n"
-        "/help — Show this help\n"
-        "/status — Check database connection\n"
-        "/clear — Clear conversation history\n\n"
-        "*Quick Examples*\n\n"
-        "\"Sharma को 50 kg दिया 120 रेट पर\"\n"
-        "(Record sale: 50 kg @ ₹120 to Sharma)\n\n"
-        "\"बकाया देखो\" or \"Show balances\"\n"
-        "(Get all outstanding balances)\n\n"
-        "\"Gupta की payment 5000 दी\"\n"
-        "(Record payment: ₹5,000 from Gupta)\n"
-    )
+    help_text = render("commands", "help", "hi-Hind")
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_connected = await asyncio.to_thread(db.test_connection)
-    status = "✅ Connected" if is_connected else "❌ Disconnected"
-    await update.message.reply_text(f"Database: {status}")
+    key = "status_connected" if is_connected else "status_disconnected"
+    status_text = render("commands", key, "hi-Hind")
+    await update.message.reply_text(status_text)
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     clear_history(user_id)
-    await update.message.reply_text("✅ Conversation history cleared.")
+    clear_text = render("system", "history_cleared", "hi-Hind")
+    await update.message.reply_text(clear_text)
 
 
 # ----------------------------------------------------------------------------
@@ -208,12 +190,15 @@ async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     sel = selection.pop(token, user_id)
     if sel is None:
-        await _handle_expired_token(query, context, user_id, "⏱️ Selection expired ya already handled.")
+        expired_msg = render("system", "selection_expired", "hi-Hind")
+        await _handle_expired_token(query, context, user_id, expired_msg)
         return
 
     # Get selected customer
     if index < 0 or index >= len(sel.customer_options):
-        await context.bot.send_message(chat_id=user_id, text="❌ Invalid selection.")
+        user_lang = sel.extras.get("user_lang", "hi-Hind")
+        invalid_msg = render("system", "invalid_selection", user_lang)
+        await context.bot.send_message(chat_id=user_id, text=invalid_msg)
         return
 
     selected_customer = sel.customer_options[index]
@@ -236,9 +221,9 @@ async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await _send_agent_result(update, result)
     except Exception:
         logger.exception("Selection follow-up failed for user %s", user_id)
-        await context.bot.send_message(
-            chat_id=user_id, text="❌ Sorry, something went wrong. Please try again."
-        )
+        user_lang = sel.extras.get("user_lang", "hi-Hind")
+        error_msg = render("system", "generic_error", user_lang)
+        await context.bot.send_message(chat_id=user_id, text=error_msg)
 
 
 # ----------------------------------------------------------------------------
@@ -261,7 +246,9 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
     action = pending.pop(token, user_id)
 
     if action is None:
-        await _handle_expired_token(query, context, user_id, "⏱️ Confirmation expired ya already handled.")
+        user_lang = (action.extras or {}).get("user_lang", "hi-Hind") if action else "hi-Hind"
+        expired_msg = render("system", "confirmation_expired", user_lang)
+        await _handle_expired_token(query, context, user_id, expired_msg)
         return
 
     # Strip buttons immediately so the user can't double-click.
@@ -275,9 +262,9 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
             result = await cancel_pending(user_id, action)
     except Exception:
         logger.exception("Confirmation handling failed for user %s", user_id)
-        await context.bot.send_message(
-            chat_id=user_id, text="❌ Sorry, something went wrong. Please try again."
-        )
+        user_lang = (action.extras or {}).get("user_lang", "hi-Hind")
+        error_msg = render("system", "generic_error", user_lang)
+        await context.bot.send_message(chat_id=user_id, text=error_msg)
         return
 
     markup = _confirm_keyboard(result.confirmation.token) if result.confirmation else None

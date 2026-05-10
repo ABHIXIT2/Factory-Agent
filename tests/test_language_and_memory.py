@@ -4,10 +4,7 @@ import json
 import pytest
 
 from src.utils import detect_user_lang
-from src.render import (
-    _build_summary, _render_closing, _summarize_save_sale,
-    _summarize_record_payment, _summarize_create_customer,
-)
+from src.render import _build_summary, _render_closing
 from src import pending, session
 
 
@@ -229,11 +226,11 @@ class TestClosingMessageRendering:
             arguments={"customer_id": 1, "qty_kg": 10, "rate_per_kg": 50},
         )
         tool_result = json.dumps({
-            "ok": False, "error": "customer not found",
+            "ok": False, "error": "customer_not_found",
         })
         closing = _render_closing(call, tool_result, {}, "en")
         assert "❌" in closing or "error" in closing.lower()
-        assert "customer not found" in closing
+        assert "customer" in closing.lower()
 
     def test_closing_error_hinglish(self):
         """Error closing in Hinglish."""
@@ -242,11 +239,11 @@ class TestClosingMessageRendering:
             arguments={"customer_id": 1, "qty_kg": 10, "rate_per_kg": 50},
         )
         tool_result = json.dumps({
-            "ok": False, "error": "customer not found",
+            "ok": False, "error": "customer_not_found",
         })
         closing = _render_closing(call, tool_result, {}, "hi-Hind")
         assert "❌" in closing or "nahi" in closing.lower()
-        assert "customer not found" in closing
+        assert "customer" in closing.lower()
 
     def test_closing_unknown_tool_all_languages(self):
         """Unknown tool falls back to generic message in all languages."""

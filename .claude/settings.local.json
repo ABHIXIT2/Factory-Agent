@@ -34,7 +34,9 @@
       "Bash(python -c \"from src import logger as l; print\\(dir\\(l\\)\\)\")",
       "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\(-not $pythonPath\\) { $pythonPath = \\(Get-Command python3 -ErrorAction SilentlyContinue\\).Source }; if \\($pythonPath\\) { & $pythonPath -m py_compile 'c:/Users/Admin/Desktop/Factory Agent/src/logger.py', 'c:/Users/Admin/Desktop/Factory Agent/src/tools.py', 'c:/Users/Admin/Desktop/Factory Agent/src/db.py', 'c:/Users/Admin/Desktop/Factory Agent/src/render.py'; \"Syntax check passed\" } else { \"Python not found\" })",
       "Bash(ls \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)",
-      "Bash(dir \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)"
+      "Bash(dir \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)",
+      "Bash(cat \"c:/Users/Admin/.claude/projects/c--Users-Admin-Desktop-Factory-Agent/16ffb597-b7bd-4864-9467-0d674e306e4d/tool-results/bzsk5628z.txt\" | grep -v \"^c:/Users/Admin/Desktop/Factory Agent/.git/\" | sort)",
+      "Read(//c/Users/Admin/.claude/projects/c--Users-Admin-Desktop-Factory-Agent/16ffb597-b7bd-4864-9467-0d674e306e4d/tool-results/**)"
     ]
   }
 }

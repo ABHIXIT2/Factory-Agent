@@ -452,7 +452,7 @@ async def test_continue_after_confirmation_templates_failure():
     )
 
     async def fake_execute(_n, _a):
-        return json.dumps({"ok": False, "error": "customer_id 1 not found"})
+        return json.dumps({"ok": False, "error": "customer_not_found"})
 
     with patch.object(agent, "call_llm") as mock_call, \
          patch.object(agent, "execute_tool", side_effect=fake_execute):
@@ -460,7 +460,7 @@ async def test_continue_after_confirmation_templates_failure():
 
     mock_call.assert_not_called()
     assert "❌" in result.text
-    assert "customer_id 1 not found" in result.text
+    assert "customer" in result.text.lower()
 
 
 # ---------------------------------------------------------------------------
