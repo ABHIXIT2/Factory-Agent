@@ -25,7 +25,7 @@ from src.config import (
 from src.providers import call_llm
 from src.session import (
     get_history, set_history, clear_history, check_rate_limit,
-    _compact_tool_result, inject_created_customer,
+    inject_created_customer,
 )
 from src.tools import execute_tool
 from src import pending, selection
@@ -82,10 +82,28 @@ _TOOL_RESULT_KEEP_FIELDS = {
     "query_production": {"ok", "production", "count", "total_kg"},
     "query_cash_flow": {"ok", "cash_flows", "count", "total_in", "total_out"},
     "query_credit_ledger": {"ok", "ledger", "count", "total_debit", "total_credit"},
-    "query_sales": {"ok", "sales"},
+    "query_sales": {"ok", "sales", "count"},
     "delete_record": {"ok", "success"},
     "get_cash_position": {"ok", "total_in", "total_out", "net_cash"},
 }
+
+# Per-row fields the LLM never needs — DB internals, audit trail, soft-delete bookkeeping.
+# Stripping these from list-of-row results cuts token usage substantially on query tools.
+_ROW_FIELD_BLACKLIST = frozenset({
+    "recorded_at", "confirmed_at", "deleted_at",
+    "recorded_by", "deleted_by", "original_message",
+    "is_deleted",
+})
+
+
+def _strip_row_fields(value: Any) -> Any:
+    """Recursively strip blacklisted fields from row dicts inside list values."""
+    if isinstance(value, list):
+        return [_strip_row_fields(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _strip_row_fields(v) for k, v in value.items() if k not in _ROW_FIELD_BLACKLIST}
+    return value
+
 
 def _clean_tool_result(tool_name: str, content: str) -> str:
     """Remove irrelevant fields from tool result JSON. Keep only essential data."""
@@ -98,7 +116,7 @@ def _clean_tool_result(tool_name: str, content: str) -> str:
     if not isinstance(payload, dict):
         return content
     keep_fields = _TOOL_RESULT_KEEP_FIELDS.get(tool_name, {"ok"})
-    cleaned = {k: v for k, v in payload.items() if k in keep_fields}
+    cleaned = {k: _strip_row_fields(v) for k, v in payload.items() if k in keep_fields}
     return json.dumps(cleaned)
 
 
@@ -325,22 +343,7 @@ async def agent_loop(
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-                # Try to render query result via template (skip LLM for deterministic formatting)
-                read_only_queries = {
-                    "query_customers", "query_sales", "query_production",
-                    "query_cash_flow", "query_credit_ledger"
-                }
-                if tc.function.name in read_only_queries:
-                    from src.render import _render_query_result
-                    user_lang = detect_user_lang(user_message)
-                    rendered = _render_query_result(tc.function.name, tool_result, user_lang)
-                    if rendered is not None:
-                        # Template found and rendering succeeded — use it directly
-                        final_text = rendered
-                        break  # Exit loop; skip further LLM processing
-
-                compacted_result = _compact_tool_result(tool_result)
-                cleaned_result = _clean_tool_result(tc.function.name, compacted_result)
+                cleaned_result = _clean_tool_result(tc.function.name, tool_result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,

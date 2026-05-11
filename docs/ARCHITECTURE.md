@@ -376,6 +376,10 @@ View customer_balance:
 # Always correct, computed on-the-fly
 ```
 
+### 6. Query Result Formatting via LLM
+
+Read-only `query_*` tool results flow back through the LLM, which formats them per the output-style rules in the system prompt. Single rendering path keeps history valid (every `tool_call` followed by its `role: tool` result), lets follow-up turns reason about prior results without re-querying, and avoids per-tool template maintenance.
+
 ---
 
 ## Error Handling

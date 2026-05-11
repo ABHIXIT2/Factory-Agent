@@ -10,7 +10,6 @@ from typing import Any
 
 from src import pending
 from src.messages import render_tool, render
-from src.utils import format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -140,28 +139,3 @@ def _render_closing(
         return "✅ Saved."
 
 
-def _render_query_result(
-    tool_name: str,
-    tool_result: str,
-    user_lang: str = "hi-Hind",
-) -> str | None:
-    """Render multi-row query results via templates. Returns None if template not found."""
-    try:
-        parsed = _parse_tool_result(tool_result)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-    if not parsed.get("ok", True):
-        return None  # Error; let LLM handle it
-
-    rows = parsed.get("rows") or parsed.get("results", []) or []
-    count = len(rows)
-
-    try:
-        return render("queries", tool_name, user_lang, rows=rows, count=count)
-    except KeyError:
-        logger.debug("query template not found for %s, letting LLM render", tool_name)
-        return None
-    except Exception as e:
-        logger.exception("query-template render failed for %s: %s", tool_name, e)
-        return None

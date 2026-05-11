@@ -53,8 +53,9 @@ def get_history(user_id: int) -> list[dict[str, Any]]:
         return list(_sessions.get(user_id, []))
 
 
-def _compact_tool_result(content: str) -> str:  # Used by agent.py for in-flight compaction
-    """Shrink oversized tool-result JSON for session history (full sent to LLM in-flight)."""
+def _compact_tool_result(content: str) -> str:
+    """Shrink oversized tool-result JSON. Called only at history-persist time;
+    in-flight tool results go to the LLM uncompacted."""
     if not content or len(content) <= TOOL_RESULT_HISTORY_MAX_CHARS:
         return content
     try:

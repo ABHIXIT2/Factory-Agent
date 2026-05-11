@@ -36,7 +36,17 @@
       "Bash(ls \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)",
       "Bash(dir \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" /B)",
       "Bash(cat \"c:/Users/Admin/.claude/projects/c--Users-Admin-Desktop-Factory-Agent/16ffb597-b7bd-4864-9467-0d674e306e4d/tool-results/bzsk5628z.txt\" | grep -v \"^c:/Users/Admin/Desktop/Factory Agent/.git/\" | sort)",
-      "Read(//c/Users/Admin/.claude/projects/c--Users-Admin-Desktop-Factory-Agent/16ffb597-b7bd-4864-9467-0d674e306e4d/tool-results/**)"
+      "Read(//c/Users/Admin/.claude/projects/c--Users-Admin-Desktop-Factory-Agent/16ffb597-b7bd-4864-9467-0d674e306e4d/tool-results/**)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:simonwillison.net)",
+      "Bash(findstr /i plan)",
+      "Bash(mkdir -p \"c:/Users/Admin/Desktop/Factory Agent/plans\" && mv \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/plans/\")",
+      "Bash(mv \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Admin\\Desktop\\Factory Agent\\.claude\\plans"
     ]
   }
 }
