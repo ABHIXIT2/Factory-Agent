@@ -28,6 +28,7 @@ _google_client: AsyncOpenAI | None = (
     AsyncOpenAI(
         api_key=GOOGLE_AI_STUDIO_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        timeout=10.0,
     )
     if GOOGLE_PRIMARY_ENABLED
     else None
@@ -37,6 +38,7 @@ _cerebras_client: AsyncOpenAI | None = (
     AsyncOpenAI(
         api_key=CEREBRAS_API_KEY,
         base_url="https://api.cerebras.ai/v1",
+        timeout=10.0,
     )
     if CEREBRAS_PRIMARY_ENABLED
     else None
@@ -116,6 +118,14 @@ def _warn_rate_limit(provider: str) -> None:
     pass
 
 
+def _is_cerebras_quota_exceeded() -> bool:
+    """Check if Cerebras daily quota is already exceeded."""
+    with _usage_lock:
+        if _cerebras_day.tokens >= CEREBRAS_DAILY_TOKEN_LIMIT:
+            return True
+    return False
+
+
 def _is_retryable_rate_limit(exc: BaseException) -> bool:
     """Retry per-minute / transient rate limits. Skip per-day (TPD) limits — they
     won't recover within retry window, and retrying just burns more quota."""
@@ -147,21 +157,10 @@ def _call_groq_with_retry(messages: list[dict[str, Any]], model: str, temperatur
 async def call_llm(
     messages: list[dict[str, Any]], model: str | None = None
 ) -> Any:
-    """Fallback chain: Cerebras → Gemini → Groq. Each step is skipped if not configured
-    or falls through on rate-limit / transient API error."""
+    """Fallback chain: Gemini → Groq → Cerebras. Cerebras moved to last due to rate-limit issues."""
     chosen_model = model or GROQ_MODEL
 
-    # Cerebras is primary when enabled
-    if CEREBRAS_PRIMARY_ENABLED:
-        try:
-            return await _call_cerebras(messages)
-        except openai.RateLimitError:
-            logger.info("Provider fallback: cerebras_rate_limit → gemini")
-            _warn_rate_limit("cerebras")
-        except (openai.APIError, openai.APIConnectionError) as e:
-            logger.info("Provider fallback: cerebras_api_error → gemini (error: %s)", type(e).__name__)
-
-    # Gemini next
+    # Gemini is primary when enabled
     if GOOGLE_PRIMARY_ENABLED:
         try:
             return await _call_google(messages)
@@ -171,7 +170,7 @@ async def call_llm(
         except (openai.APIError, openai.APIConnectionError) as e:
             logger.info("Provider fallback: gemini_api_error → groq (error: %s)", type(e).__name__)
 
-    # Groq: final fallback
+    # Groq: next fallback
     logger.info("Calling Groq with retry logic enabled")
     try:
         response = await asyncio.to_thread(
@@ -206,6 +205,18 @@ async def call_llm(
             _groq_day.calls += 1
             day_total = _groq_day.tokens
         _print_usage("groq", chosen_model, p, c, t, day_total, GROQ_DAILY_TOKEN_LIMIT)
+
+    # Cerebras as last resort (skip if quota exceeded)
+    if CEREBRAS_PRIMARY_ENABLED and not _is_cerebras_quota_exceeded():
+        try:
+            logger.info("Cerebras available as fallback")
+            return await _call_cerebras(messages)
+        except openai.RateLimitError:
+            logger.info("Cerebras rate-limited, using Groq response")
+            _warn_rate_limit("cerebras")
+        except (openai.APIError, openai.APIConnectionError) as e:
+            logger.info("Cerebras fallback failed (error: %s), using Groq response", type(e).__name__)
+
     return response
 
 
