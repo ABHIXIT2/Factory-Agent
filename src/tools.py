@@ -37,9 +37,23 @@ from src.config import (
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------------------
+# ============================================================================
+# Helpers
+# ============================================================================
+
+def _normalize_optional_text(value: Any, max_chars: int) -> str | None:
+    """Optional text fields: empty/whitespace -> SQL NULL, never ''. Silent."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    return truncate(s, max_chars)
+
+
+# ============================================================================
 # Async dispatch
-# ----------------------------------------------------------------------------
+# ============================================================================
 
 async def execute_tool(tool_name: str, tool_input: dict[str, Any]) -> str:
     """
@@ -268,15 +282,24 @@ async def _create_customer(d: dict[str, Any]) -> str:
     shop_name = (d.get("shop_name") or "").strip()
     if not shop_name:
         raise ValueError("shop_name is required")
+    owner_name = (d.get("owner_name") or "").strip()
+    if not owner_name:
+        raise ValueError("owner_name is required")
+    owner_phone = (d.get("owner_phone") or "").strip()
+    if not owner_phone:
+        raise ValueError("owner_phone is required")
+    address = (d.get("address") or "").strip()
+    if not address:
+        raise ValueError("address is required")
     credit_limit = validate_positive_number(
         d.get("credit_limit", 0), "credit_limit", allow_zero=True
     )
     result = await _to_thread(
         db.create_customer,
         shop_name=truncate(shop_name, 200),
-        owner_name=truncate(d.get("owner_name"), 200),
-        owner_phone=truncate(d.get("owner_phone"), 20),
-        address=truncate(d.get("address"), 500),
+        owner_name=truncate(owner_name, 200),
+        owner_phone=truncate(owner_phone, 20),
+        address=truncate(address, 500),
         credit_limit=credit_limit,
         user_id=d.get("user_id"),
     )
@@ -294,6 +317,9 @@ async def _save_sale(d: dict[str, Any]) -> str:
     payment_mode = d.get("payment_mode")
     if payment_mode is not None:
         validate_enum(payment_mode, {"cash", "online"}, "payment_mode")
+    original_message = (d.get("original_message") or "").strip()
+    if not original_message:
+        raise ValueError("original_message is required")
 
     result = await _to_thread(
         db.save_sale,
@@ -303,8 +329,8 @@ async def _save_sale(d: dict[str, Any]) -> str:
         sale_date=sale_date,
         payment_status=payment_status,
         payment_mode=payment_mode,
-        notes=truncate(d.get("notes"), 1000),
-        original_message=truncate(d.get("original_message", ""), 4000),
+        notes=_normalize_optional_text(d.get("notes"), 1000),
+        original_message=truncate(original_message, 4000),
         user_id=d.get("user_id"),
     )
     return _ok(**result)
@@ -317,6 +343,9 @@ async def _record_payment(d: dict[str, Any]) -> str:
     payment_mode = d.get("payment_mode")
     if payment_mode is not None:
         validate_enum(payment_mode, {"cash", "online"}, "payment_mode")
+    original_message = (d.get("original_message") or "").strip()
+    if not original_message:
+        raise ValueError("original_message is required")
 
     result = await _to_thread(
         db.record_payment,
@@ -324,8 +353,8 @@ async def _record_payment(d: dict[str, Any]) -> str:
         amount=amount,
         payment_date=payment_date,
         payment_mode=payment_mode,
-        notes=truncate(d.get("notes"), 1000),
-        original_message=truncate(d.get("original_message", ""), 4000),
+        notes=_normalize_optional_text(d.get("notes"), 1000),
+        original_message=truncate(original_message, 4000),
         user_id=d.get("user_id"),
     )
     result["formatted_balance"] = format_amount(result.get("new_balance", 0))
@@ -377,13 +406,16 @@ async def _save_production(d: dict[str, Any]) -> str:
     total_packets = validate_positive_int(
         d.get("total_packets"), "total_packets", allow_zero=True
     )
+    original_message = (d.get("original_message") or "").strip()
+    if not original_message:
+        raise ValueError("original_message is required")
     result = await _to_thread(
         db.save_production,
         prod_date=prod_date,
         total_produced_kg=total_kg,
         total_packets=total_packets,
-        notes=truncate(d.get("notes"), 1000),
-        original_message=truncate(d.get("original_message", ""), 4000),
+        notes=_normalize_optional_text(d.get("notes"), 1000),
+        original_message=truncate(original_message, 4000),
         user_id=d.get("user_id"),
     )
     return _ok(**result)
@@ -399,6 +431,12 @@ async def _save_cash_flow(d: dict[str, Any]) -> str:
     if not description:
         raise ValueError("description is required")
     amount = validate_positive_number(d.get("amount"), "amount")
+    party = (d.get("party") or "").strip()
+    if not party:
+        raise ValueError("party is required")
+    original_message = (d.get("original_message") or "").strip()
+    if not original_message:
+        raise ValueError("original_message is required")
     payment_mode = d.get("payment_mode")
     if payment_mode is not None:
         validate_enum(payment_mode, {"cash", "online"}, "payment_mode")
@@ -410,10 +448,10 @@ async def _save_cash_flow(d: dict[str, Any]) -> str:
         category=truncate(category, 100),
         description=truncate(description, 500),
         amount=amount,
-        party=truncate(d.get("party"), 200),
+        party=truncate(party, 200),
         payment_mode=payment_mode,
-        notes=truncate(d.get("notes"), 1000),
-        original_message=truncate(d.get("original_message", ""), 4000),
+        notes=_normalize_optional_text(d.get("notes"), 1000),
+        original_message=truncate(original_message, 4000),
         user_id=d.get("user_id"),
     )
     return _ok(**result)
@@ -536,7 +574,7 @@ _DELETE_ALLOWED_TABLES = {"sales", "credit_ledger", "production_log", "cash_flow
 async def _delete_record(d: dict[str, Any]) -> str:
     table = validate_enum(d.get("table"), _DELETE_ALLOWED_TABLES, "table")
     record_id = validate_positive_int(d.get("record_id"), "record_id")
-    reason = truncate(d.get("reason"), 500)
+    reason = _normalize_optional_text(d.get("reason"), 500)
     result = await _to_thread(
         db.soft_delete,
         table=table, record_id=record_id,

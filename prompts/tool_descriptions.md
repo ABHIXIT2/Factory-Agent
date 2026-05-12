@@ -15,12 +15,12 @@ Example: `search_customer({"name_fragment":"Sharma"})`
 Create a new customer when `search_customer` returned no match and the user confirmed the new name. Returns `customer_id` for use in the next call.
 
 - `shop_name` (string, required)
-- `owner_name` (string, optional)
-- `owner_phone` (string, optional) — kept as string
-- `address` (string, optional)
+- `owner_name` (string, required)
+- `owner_phone` (string, required) — kept as string
+- `address` (string, required)
 - `credit_limit` (number, optional, default 0)
 
-Example: `create_customer({"shop_name":"Patel Stores","credit_limit":10000})`
+Example: `create_customer({"shop_name":"Patel Stores","owner_name":"Ramesh Patel","owner_phone":"9876543210","address":"Sadar Bazar, Indore","credit_limit":10000})`
 
 ## save_sale
 
@@ -105,11 +105,11 @@ Record income or expense. Sales paid in cash and customer payments are auto-reco
 - `category` (enum, required) — one of: `"sale_cash"`, `"payment_received"`, `"raw_material"`, `"labour"`, `"utilities"`, `"transport"`, `"packaging"`, `"equipment"`, `"loan_in"`, `"loan_out"`, `"owner_draw"`, `"misc_in"`, `"misc_out"`
 - `description` (string, required)
 - `amount` (number, required, > 0)
-- `party` (string, optional)
+- `party` (string, required)
 - `payment_mode` (enum, optional) — `"cash"` or `"online"`
 - `notes` (string, optional)
 
-Example: `save_cash_flow({"flow_date":"2026-05-09","flow_type":"out","category":"raw_material","description":"Besan from supplier","amount":12000,"payment_mode":"cash"})`
+Example: `save_cash_flow({"flow_date":"2026-05-09","flow_type":"out","category":"raw_material","description":"Besan from supplier","amount":12000,"party":"Raj Suppliers","payment_mode":"cash"})`
 
 ## query_cash_flow
 

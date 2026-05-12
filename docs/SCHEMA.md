@@ -28,11 +28,11 @@ CREATE TABLE users (
 ```sql
 CREATE TABLE customers (
     id SERIAL PRIMARY KEY,
-    shop_name TEXT NOT NULL,
+    shop_name TEXT NOT NULL CHECK (length(trim(shop_name)) > 0),
     shop_name_normalized TEXT NOT NULL,
-    owner_name TEXT,
-    owner_phone TEXT,
-    address TEXT,
+    owner_name TEXT NOT NULL CHECK (length(trim(owner_name)) > 0),
+    owner_phone TEXT NOT NULL CHECK (length(trim(owner_phone)) > 0),
+    address TEXT NOT NULL CHECK (length(trim(address)) > 0),
     credit_limit NUMERIC(12,2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     created_by BIGINT REFERENCES users(user_id)
@@ -42,10 +42,15 @@ CREATE INDEX idx_customers_normalized ON customers(shop_name_normalized);
 ```
 
 **Notes:**
-- `shop_name` = display name (e.g., "Sharma Namkeen")
+
+- `shop_name` = display name (e.g., "Sharma Namkeen") — **required, non-blank**
+- `owner_name` = shop owner's full name — **required, non-blank**
+- `owner_phone` = shop owner's phone number — **required, non-blank**
+- `address` = shop location — **required, non-blank**
 - `shop_name_normalized` = lowercase, stripped (e.g., "sharma namkeen") — used for fuzzy matching
 - Every table references `customer_id` (FK), never name string — prevents duplicates
 - `created_by` tracks who added the customer
+- All text fields have `CHECK (length(trim(col)) > 0)` to prevent blank-only values
 
 ---
 
@@ -63,19 +68,20 @@ CREATE TABLE sales (
     notes TEXT,
     recorded_at TIMESTAMPTZ DEFAULT NOW(),
     recorded_by BIGINT REFERENCES users(user_id),
-    original_message TEXT NOT NULL,
+    original_message TEXT NOT NULL CHECK (length(trim(original_message)) > 0),
     confirmed_at TIMESTAMPTZ
 );
 ```
 
 **Notes:**
+
 - One row per sale, regardless of payment type
 - `total_bill` = computed column (auto-calculated)
 - `payment_status`:
   - `'paid'` = customer paid immediately (cash or online)
   - `'credited'` = customer owes money (will be tracked in `credit_ledger`)
 - `payment_mode` is NULL when `payment_status='credited'` (payment mode unknown until later)
-- `original_message` = raw user input (audit trail: "50 kg Sharma 120 rate udhaar")
+- `original_message` = raw user input (audit trail: "50 kg Sharma 120 rate udhaar") — **required, non-blank**
 - `confirmed_at` = timestamp when user tapped ✅ (proves user confirmed)
 
 ---
@@ -93,7 +99,7 @@ CREATE TABLE credit_ledger (
     notes TEXT,
     recorded_at TIMESTAMPTZ DEFAULT NOW(),
     recorded_by BIGINT REFERENCES users(user_id),
-    original_message TEXT NOT NULL
+    original_message TEXT NOT NULL CHECK (length(trim(original_message)) > 0)
 );
 
 CREATE INDEX idx_credit_ledger_customer ON credit_ledger(customer_id);
@@ -112,6 +118,10 @@ CREATE INDEX idx_credit_ledger_customer ON credit_ledger(customer_id);
    - `transaction_type` = 'payment_received'
    - `debit_amount` = 0
    - `credit_amount` = amount received (reduces outstanding)
+
+**Notes:**
+
+- `original_message` — **required, non-blank** (audit trail: raw user input)
 
 **Atomic operation when sale is credited:**
 ```python
@@ -164,16 +174,18 @@ CREATE TABLE production_log (
     batch_notes TEXT,
     recorded_at TIMESTAMPTZ DEFAULT NOW(),
     recorded_by BIGINT REFERENCES users(user_id),
-    original_message TEXT NOT NULL
+    original_message TEXT NOT NULL CHECK (length(trim(original_message)) > 0)
 );
 
 CREATE INDEX idx_production_log_date ON production_log(prod_date);
 ```
 
 **Notes:**
+
 - `prod_date` is NOT unique — multiple batches in a day are allowed
 - Agent warns if entry exists for this date: "आज पहले भी production दर्ज हो चुका है। फिर भी add करें?"
 - User taps ✅ to add another, or ❌ to cancel
+- `original_message` — **required, non-blank**
 
 ---
 
@@ -198,24 +210,28 @@ CREATE TABLE cash_flow (
         'misc_in',
         'misc_out'
     )),
-    description TEXT NOT NULL,
+    description TEXT NOT NULL CHECK (length(trim(description)) > 0),
     amount NUMERIC(12,2) NOT NULL,
-    party TEXT,
+    party TEXT NOT NULL CHECK (length(trim(party)) > 0),
     payment_mode TEXT CHECK (payment_mode IN ('cash', 'online')),
     notes TEXT,
     recorded_at TIMESTAMPTZ DEFAULT NOW(),
     recorded_by BIGINT REFERENCES users(user_id),
-    original_message TEXT NOT NULL
+    original_message TEXT NOT NULL CHECK (length(trim(original_message)) > 0)
 );
 
 CREATE INDEX idx_cash_flow_date ON cash_flow(flow_date);
 ```
 
 **Notes:**
+
 - `flow_type`:
   - `'in'` = money received (sales, loans, investments)
   - `'out'` = money spent (expenses, repayments, withdrawals)
 - `amount` = always positive (direction given by `flow_type`)
+- `description` — **required, non-blank** (e.g., "Besan from supplier")
+- `party` — **required, non-blank** (supplier/customer name for the transaction)
+- `original_message` — **required, non-blank** (audit trail)
 - Complete financial picture — sum all 'in', sum all 'out', compute net
 
 ---

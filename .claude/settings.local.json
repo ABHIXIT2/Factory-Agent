@@ -43,7 +43,10 @@
       "WebFetch(domain:simonwillison.net)",
       "Bash(findstr /i plan)",
       "Bash(mkdir -p \"c:/Users/Admin/Desktop/Factory Agent/plans\" && mv \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/plans/\")",
-      "Bash(mv \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/\")"
+      "Bash(mv \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/\")",
+      "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\($pythonPath\\) { $pythonPath } else { \"Python not found in PATH\" })",
+      "Read(//c/Users/Admin/.claude/plans/**)",
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\database\\\\migrations\" -Recurse -Force)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Admin\\Desktop\\Factory Agent\\.claude\\plans"

@@ -242,12 +242,15 @@ All write tools show **[✅ Confirm][❌ Cancel]** inline buttons before executi
 
 ### Customer Management
 
-#### `create_customer(shop_name, owner_name?, owner_phone?, address?, credit_limit?) → {ok, customer_id, shop_name}`
+#### `create_customer(shop_name, owner_name, owner_phone, address, credit_limit?) → {ok, customer_id, shop_name}`
 
 **Parameters:**
-- `shop_name` — **required**
-- `owner_name`, `owner_phone`, `address` — optional
-- `credit_limit` — number, default 0
+
+- `shop_name` — **required**, non-blank shop name
+- `owner_name` — **required**, shop owner's full name
+- `owner_phone` — **required**, owner's phone number
+- `address` — **required**, shop location
+- `credit_limit` — optional, number (default 0)
 
 **Chaining:** After confirmation, if the original message wasn't a create request, the agent re-runs it (e.g., "Naya customer Patel ko sale kar" → creates Patel → re-runs sale).
 
@@ -258,12 +261,14 @@ All write tools show **[✅ Confirm][❌ Cancel]** inline buttons before executi
 #### `save_sale(customer_id, qty_kg, rate_per_kg, sale_date, payment_status, payment_mode?, notes?, original_message)`
 
 **Parameters:**
+
 - `customer_id` — **required**, from search_customer
 - `qty_kg`, `rate_per_kg` — **required**, numbers
 - `sale_date` — **required**, YYYY-MM-DD
 - `payment_status` — **required**, "paid" or "credited"
 - `payment_mode` — optional, "cash" or "online" (only for paid sales)
-- `notes`, `original_message` — optional
+- `original_message` — **required**, non-blank (audit trail: raw user input)
+- `notes` — optional
 
 ---
 
@@ -272,11 +277,13 @@ All write tools show **[✅ Confirm][❌ Cancel]** inline buttons before executi
 #### `record_payment(customer_id, amount, payment_date, payment_mode?, notes?, original_message)`
 
 **Parameters:**
+
 - `customer_id` — **required**, from search_customer
 - `amount` — **required**, number (> 0)
 - `payment_date` — **required**, YYYY-MM-DD
 - `payment_mode` — optional, "cash" or "online"
-- `notes`, `original_message` — optional
+- `original_message` — **required**, non-blank (audit trail: raw user input)
+- `notes` — optional
 
 ---
 
@@ -285,24 +292,30 @@ All write tools show **[✅ Confirm][❌ Cancel]** inline buttons before executi
 #### `save_production(prod_date, total_produced_kg, total_packets, notes?, original_message)`
 
 **Parameters:**
+
 - `prod_date` — **required**, YYYY-MM-DD
 - `total_produced_kg` — **required**, number (> 0)
 - `total_packets` — **required**, integer (>= 0)
-- `notes`, `original_message` — optional
+- `original_message` — **required**, non-blank (audit trail: raw user input)
+- `notes` — optional
 
 ---
 
 ### Cash Flow
 
-#### `save_cash_flow(flow_date, flow_type, category, description, amount, party?, payment_mode?, notes?, original_message)`
+#### `save_cash_flow(flow_date, flow_type, category, description, amount, party, payment_mode?, notes?, original_message)`
 
 **Parameters:**
+
 - `flow_date` — **required**, YYYY-MM-DD
 - `flow_type` — **required**, "in" or "out"
 - `category` — **required**, one of: sale_cash, payment_received, raw_material, labour, utilities, transport, packaging, equipment, loan_in, loan_out, owner_draw, misc_in, misc_out
-- `description` — **required**
+- `description` — **required**, non-blank (e.g., "Besan from supplier")
 - `amount` — **required**, number (> 0)
-- `party`, `payment_mode`, `notes`, `original_message` — optional
+- `party` — **required**, non-blank (supplier/customer name for the transaction)
+- `original_message` — **required**, non-blank (audit trail: raw user input)
+- `payment_mode` — optional, "cash" or "online"
+- `notes` — optional
 
 ---
 
