@@ -38,189 +38,189 @@ tools:
       hi-Hind: |
         📦 *Sale confirm kijiye:*
         ─────────────────
-        Customer: {{ customer_label }}
-        Qty: *{{ qty_kg }} kg* @ *₹{{ rate_per_kg }}/kg*
-        Total: *{{ format_amount(qty_kg * rate_per_kg) }}*
-        Date: `{{ sale_date }}`
-        Payment: *{{ payment_status }}*{% if payment_mode %} ({{ payment_mode }}){% endif %}
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `qty`: **{{ qty_kg }} kg** @ **₹{{ rate_per_kg }}/kg**
+        `total`: **{{ format_amount(qty_kg * rate_per_kg) }}**
+        `date`: `{{ sale_date }}`
+        `payment`: **{{ payment_status }}**{% if payment_mode %} (**{{ payment_mode }}**){% endif %}
+        {% if notes %}`notes`: {{ notes }}{% endif %}
       hi-Deva: |
         📦 *बिक्री confirm kijiye:*
         ─────────────────
-        Customer: {{ customer_label }}
-        मात्रा: *{{ qty_kg }} किलो* @ *₹{{ rate_per_kg }}/किलो*
-        कुल: *{{ format_amount(qty_kg * rate_per_kg) }}*
-        दिनांक: `{{ sale_date }}`
-        भुगतान: *{{ payment_status }}*{% if payment_mode %} ({{ payment_mode }}){% endif %}
-        {% if notes %}नोट: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `matra`: **{{ qty_kg }} किलो** @ **₹{{ rate_per_kg }}/किलो**
+        `total`: **{{ format_amount(qty_kg * rate_per_kg) }}**
+        `date`: `{{ sale_date }}`
+        `payment`: **{{ payment_status }}**{% if payment_mode %} (**{{ payment_mode }}**){% endif %}
+        {% if notes %}`note`: {{ notes }}{% endif %}
       en: |
         📦 *Confirm sale:*
         ─────────────────
-        Customer: {{ customer_label }}
-        Quantity: *{{ qty_kg }} kg* @ *₹{{ rate_per_kg }}/kg*
-        Total: *{{ format_amount(qty_kg * rate_per_kg) }}*
-        Date: `{{ sale_date }}`
-        Payment: *{{ payment_status }}*{% if payment_mode %} ({{ payment_mode }}){% endif %}
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `quantity`: **{{ qty_kg }} kg** @ **₹{{ rate_per_kg }}/kg**
+        `total`: **{{ format_amount(qty_kg * rate_per_kg) }}**
+        `date`: `{{ sale_date }}`
+        `payment`: **{{ payment_status }}**{% if payment_mode %} (**{{ payment_mode }}**){% endif %}
+        {% if notes %}`notes`: {{ notes }}{% endif %}
     closing:
-      hi-Hind: "✅ *Sale saved:* {{ qty_kg }} kg @ ₹{{ rate_per_kg }}/kg = *{{ format_amount(total_bill) }}*. Customer: {{ customer_label }}."
-      hi-Deva: "✅ *बिक्री सेव हो गई:* {{ qty_kg }} किलो @ ₹{{ rate_per_kg }}/किलो = *{{ format_amount(total_bill) }}*. {{ customer_label }} को।"
-      en: "✅ *Sale saved:* {{ qty_kg }} kg @ ₹{{ rate_per_kg }}/kg = *{{ format_amount(total_bill) }}*. Customer: {{ customer_label }}."
+      hi-Hind: "✅ Sale saved: **{{ qty_kg }} kg @ ₹{{ rate_per_kg }}/kg = {{ format_amount(total_bill) }}**. Customer: {{ customer_label }}."
+      hi-Deva: "✅ बिक्री सेव हो गई: **{{ qty_kg }} किलो @ ₹{{ rate_per_kg }}/किलो = {{ format_amount(total_bill) }}**. {{ customer_label }} को।"
+      en: "✅ Sale saved: **{{ qty_kg }} kg @ ₹{{ rate_per_kg }}/kg = {{ format_amount(total_bill) }}**. Customer: {{ customer_label }}."
 
   record_payment:
     confirmation:
       hi-Hind: |
         💳 *Payment confirm kijiye:*
         ─────────────────
-        Customer: {{ customer_label }}
-        Amount: *{{ format_amount(amount) }}*
-        Date: `{{ payment_date }}`
-        Mode: *{{ payment_mode or "cash" }}*
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `amount`: **{{ format_amount(amount) }}**
+        `date`: `{{ payment_date }}`
+        `mode`: **{{ payment_mode or "cash" }}**
+        {% if notes %}`notes`: {{ notes }}{% endif %}
       hi-Deva: |
         💳 *भुगतान confirm kijiye:*
         ─────────────────
-        Customer: {{ customer_label }}
-        रकम: *{{ format_amount(amount) }}*
-        दिनांक: `{{ payment_date }}`
-        तरीका: *{{ payment_mode or "cash" }}*
-        {% if notes %}नोट: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `amount`: **{{ format_amount(amount) }}**
+        `date`: `{{ payment_date }}`
+        `mode`: **{{ payment_mode or "cash" }}**
+        {% if notes %}`note`: {{ notes }}{% endif %}
       en: |
         💳 *Confirm payment:*
         ─────────────────
-        Customer: {{ customer_label }}
-        Amount: *{{ format_amount(amount) }}*
-        Date: `{{ payment_date }}`
-        Mode: *{{ payment_mode or "cash" }}*
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `customer`: {{ customer_label }}
+        `amount`: **{{ format_amount(amount) }}**
+        `date`: `{{ payment_date }}`
+        `mode`: **{{ payment_mode or "cash" }}**
+        {% if notes %}`notes`: {{ notes }}{% endif %}
     closing:
-      hi-Hind: "💳 *Payment saved:* *{{ format_amount(amount) }}* from {{ customer_label }}. Naya baqaya: *{{ format_amount(new_balance) }}*."
-      hi-Deva: "💳 *भुगतान सेव हो गया:* *{{ format_amount(amount) }}* — {{ customer_label }} से। नया बकाया: *{{ format_amount(new_balance) }}*।"
-      en: "💳 *Payment saved:* *{{ format_amount(amount) }}* from {{ customer_label }}. New balance: *{{ format_amount(new_balance) }}*."
+      hi-Hind: "💳 Payment saved: **{{ format_amount(amount) }}** from {{ customer_label }}. Naya baqaya: **{{ format_amount(new_balance) }}**."
+      hi-Deva: "💳 भुगतान सेव हो गया: **{{ format_amount(amount) }}** — {{ customer_label }} से। नया बकाया: **{{ format_amount(new_balance) }}**।"
+      en: "💳 Payment saved: **{{ format_amount(amount) }}** from {{ customer_label }}. New balance: **{{ format_amount(new_balance) }}**."
 
   save_production:
     confirmation:
       hi-Hind: |
         🏭 *Production confirm kijiye:*
         ─────────────────
-        Date: `{{ prod_date }}`
-        Qty: *{{ total_produced_kg }} kg*
-        Packets: *{{ total_packets }}*
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `date`: `{{ prod_date }}`
+        `qty`: **{{ total_produced_kg }} kg**
+        `packets`: **{{ total_packets }}**
+        {% if notes %}`notes`: {{ notes }}{% endif %}
       hi-Deva: |
         🏭 *उत्पादन confirm kijiye:*
         ─────────────────
-        दिनांक: `{{ prod_date }}`
-        मात्रा: *{{ total_produced_kg }} किलो*
-        पैकेट: *{{ total_packets }}*
-        {% if notes %}नोट: {{ notes }}{% endif %}
+        `date`: `{{ prod_date }}`
+        `matra`: **{{ total_produced_kg }} किलो**
+        `packet`: **{{ total_packets }}**
+        {% if notes %}`note`: {{ notes }}{% endif %}
       en: |
         🏭 *Confirm production:*
         ─────────────────
-        Date: `{{ prod_date }}`
-        Quantity: *{{ total_produced_kg }} kg*
-        Packets: *{{ total_packets }}*
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `date`: `{{ prod_date }}`
+        `quantity`: **{{ total_produced_kg }} kg**
+        `packets`: **{{ total_packets }}**
+        {% if notes %}`notes`: {{ notes }}{% endif %}
     closing:
-      hi-Hind: "🏭 *Production saved:* *{{ total_produced_kg }} kg*, *{{ total_packets }}* packets (`{{ prod_date }}`)."
-      hi-Deva: "🏭 *उत्पादन सेव हो गया:* *{{ total_produced_kg }} किलो*, *{{ total_packets }}* पैकेट (`{{ prod_date }}`)।"
-      en: "🏭 *Production saved:* *{{ total_produced_kg }} kg*, *{{ total_packets }}* packets (`{{ prod_date }}`)."
+      hi-Hind: "🏭 Production saved: **{{ total_produced_kg }} kg**, **{{ total_packets }}** packets (`{{ prod_date }}`)."
+      hi-Deva: "🏭 उत्पादन सेव हो गया: **{{ total_produced_kg }} किलो**, **{{ total_packets }}** पैकेट (`{{ prod_date }}`)।"
+      en: "🏭 Production saved: **{{ total_produced_kg }} kg**, **{{ total_packets }}** packets (`{{ prod_date }}`)."
 
   save_cash_flow:
     confirmation:
       hi-Hind: |
         {% if flow_type == "in" %}💰{% else %}💸{% endif %} *Cash {{ flow_type }} confirm kijiye:*
         ─────────────────
-        Date: `{{ flow_date }}`
-        Amount: *{{ format_amount(amount) }}*
-        Category: *{{ category }}*
-        Description: {{ description }}
-        Party: {{ party or "–" }}
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `date`: `{{ flow_date }}`
+        `amount`: **{{ format_amount(amount) }}**
+        `category`: **{{ category }}**
+        `description`: {{ description }}
+        `party`: {{ party or "–" }}
+        {% if notes %}`notes`: {{ notes }}{% endif %}
       hi-Deva: |
         {% if flow_type == "in" %}💰{% else %}💸{% endif %} *कैश {% if flow_type == "in" %}जमा{% else %}खर्च{% endif %} confirm kijiye:*
         ─────────────────
-        दिनांक: `{{ flow_date }}`
-        रकम: *{{ format_amount(amount) }}*
-        श्रेणी: *{{ category }}*
-        विवरण: {{ description }}
-        पार्टी: {{ party or "–" }}
-        {% if notes %}नोट: {{ notes }}{% endif %}
+        `date`: `{{ flow_date }}`
+        `amount`: **{{ format_amount(amount) }}**
+        `category`: **{{ category }}**
+        `description`: {{ description }}
+        `party`: {{ party or "–" }}
+        {% if notes %}`note`: {{ notes }}{% endif %}
       en: |
         {% if flow_type == "in" %}💰{% else %}💸{% endif %} *Confirm cash {{ flow_type }}:*
         ─────────────────
-        Date: `{{ flow_date }}`
-        Amount: *{{ format_amount(amount) }}*
-        Category: *{{ category }}*
-        Description: {{ description }}
-        Party: {{ party or "–" }}
-        {% if notes %}Notes: {{ notes }}{% endif %}
+        `date`: `{{ flow_date }}`
+        `amount`: **{{ format_amount(amount) }}**
+        `category`: **{{ category }}**
+        `description`: {{ description }}
+        `party`: {{ party or "–" }}
+        {% if notes %}`notes`: {{ notes }}{% endif %}
     closing:
-      hi-Hind: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} *Cash {{ flow_type }}:* *{{ format_amount(amount) }}* ({{ category }})."
-      hi-Deva: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} *कैश {% if flow_type == 'in' %}जमा{% else %}खर्च{% endif %}:* *{{ format_amount(amount) }}* ({{ category }})।"
-      en: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} *Cash {{ flow_type }}:* *{{ format_amount(amount) }}* ({{ category }})."
+      hi-Hind: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} Cash {{ flow_type }}: **{{ format_amount(amount) }}** (**{{ category }}**)."
+      hi-Deva: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} कैश {% if flow_type == 'in' %}जमा{% else %}खर्च{% endif %}: **{{ format_amount(amount) }}** (**{{ category }}**)।"
+      en: "{% if flow_type == 'in' %}💰{% else %}💸{% endif %} Cash {{ flow_type }}: **{{ format_amount(amount) }}** (**{{ category }}**)."
 
   create_customer:
     confirmation:
       hi-Hind: |
         👤 *New customer confirm kijiye:*
         ─────────────────
-        Shop: *{{ shop_name }}*
-        Owner: {{ owner_name or "–" }}
-        Phone: {{ owner_phone or "–" }}
-        Credit limit: *{{ format_amount(credit_limit or 0) }}*
-        {% if address %}Address: {{ address }}{% endif %}
+        `shop`: **{{ shop_name }}**
+        `owner`: {{ owner_name or "–" }}
+        `phone`: {{ owner_phone or "–" }}
+        `credit_limit`: **{{ format_amount(credit_limit or 0) }}**
+        {% if address %}`address`: {{ address }}{% endif %}
       hi-Deva: |
         👤 *नया ग्राहक confirm kijiye:*
         ─────────────────
-        दुकान: *{{ shop_name }}*
-        मालिक: {{ owner_name or "–" }}
-        फोन: {{ owner_phone or "–" }}
-        क्रेडिट सीमा: *{{ format_amount(credit_limit or 0) }}*
-        {% if address %}पता: {{ address }}{% endif %}
+        `shop`: **{{ shop_name }}**
+        `owner`: {{ owner_name or "–" }}
+        `phone`: {{ owner_phone or "–" }}
+        `credit_limit`: **{{ format_amount(credit_limit or 0) }}**
+        {% if address %}`address`: {{ address }}{% endif %}
       en: |
         👤 *Confirm new customer:*
         ─────────────────
-        Shop: *{{ shop_name }}*
-        Owner: {{ owner_name or "–" }}
-        Phone: {{ owner_phone or "–" }}
-        Credit limit: *{{ format_amount(credit_limit or 0) }}*
-        {% if address %}Address: {{ address }}{% endif %}
+        `shop`: **{{ shop_name }}**
+        `owner`: {{ owner_name or "–" }}
+        `phone`: {{ owner_phone or "–" }}
+        `credit_limit`: **{{ format_amount(credit_limit or 0) }}**
+        {% if address %}`address`: {{ address }}{% endif %}
     closing:
-      hi-Hind: "👤 *New customer added:* *{{ shop_name }}* (id: `{{ customer_id }}`)."
-      hi-Deva: "👤 *नया ग्राहक जुड़ गया:* *{{ shop_name }}* (id: `{{ customer_id }}`)।"
-      en: "👤 *New customer added:* *{{ shop_name }}* (id: `{{ customer_id }}`)."
+      hi-Hind: "👤 New customer added: **{{ shop_name }}** (`id`: `{{ customer_id }}`)."
+      hi-Deva: "👤 नया ग्राहक जुड़ गया: **{{ shop_name }}** (`id`: `{{ customer_id }}`)।"
+      en: "👤 New customer added: **{{ shop_name }}** (`id`: `{{ customer_id }}`)."
 
   delete_record:
     confirmation:
       hi-Hind: |
         🗑️ *Delete confirm kijiye:*
         ─────────────────
-        Table: `{{ table }}`
-        Record ID: `{{ record_id }}`
-        Reason: {{ reason or "–" }}
+        `table`: `{{ table }}`
+        `record_id`: `{{ record_id }}`
+        `reason`: {{ reason or "–" }}
 
         ⚠️ *Soft delete* — recoverable from logs.
       hi-Deva: |
         🗑️ *डिलीट confirm kijiye:*
         ─────────────────
-        तालिका: `{{ table }}`
-        रिकॉर्ड ID: `{{ record_id }}`
-        कारण: {{ reason or "–" }}
+        `table`: `{{ table }}`
+        `record_id`: `{{ record_id }}`
+        `reason`: {{ reason or "–" }}
 
         ⚠️ *Soft delete* — logs से recover हो सकता है।
       en: |
         🗑️ *Confirm delete:*
         ─────────────────
-        Table: `{{ table }}`
-        Record ID: `{{ record_id }}`
-        Reason: {{ reason or "–" }}
+        `table`: `{{ table }}`
+        `record_id`: `{{ record_id }}`
+        `reason`: {{ reason or "–" }}
 
         ⚠️ *Soft delete* — recoverable from logs.
     closing:
-      hi-Hind: "🗑️ *Deleted* record `{{ record_id }}` from `{{ table }}`."
-      hi-Deva: "🗑️ *डिलीट हो गया* — रिकॉर्ड `{{ record_id }}` (`{{ table }}` से)।"
-      en: "🗑️ *Deleted* record `{{ record_id }}` from `{{ table }}`."
+      hi-Hind: "🗑️ Deleted record `{{ record_id }}` from `{{ table }}`."
+      hi-Deva: "🗑️ डिलीट हो गया — रिकॉर्ड `{{ record_id }}` (`{{ table }}` से)।"
+      en: "🗑️ Deleted record `{{ record_id }}` from `{{ table }}`."
 
 # ============================================================================
 # ERROR MESSAGES (PG_ERROR_MAP + generic)
