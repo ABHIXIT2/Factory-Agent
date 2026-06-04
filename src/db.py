@@ -335,6 +335,7 @@ def record_payment(
         "transaction_type": "payment_received",
         "debit_amount": 0,
         "credit_amount": amount,
+        "payment_mode": payment_mode,
         "notes": notes,
         "recorded_by": user_id,
         "original_message": original_message,
@@ -535,7 +536,7 @@ def get_cash_position(
 
 
 # ----------------------------------------------------------------------------
-# SOFT DELETE (per SECURITY.md/SCHEMA.md is_deleted contract)
+# SOFT DELETE (per ARCHITECTURE.md / database/schema.sql is_deleted contract)
 # ----------------------------------------------------------------------------
 
 _SOFT_DELETE_TABLES = {"sales", "credit_ledger", "production_log", "cash_flow", "customers"}

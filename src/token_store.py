@@ -40,14 +40,17 @@ class TokenStore(Generic[T]):
         return token
 
     def pop(self, token: str, user_id: int) -> T | None:
-        """Atomically fetch+remove. Validates user_id to prevent token replay across users."""
+        """Atomically fetch+remove. Validates user_id to prevent token replay across users.
+
+        Token is consumed on any attempt (including cross-user) so a leaked token
+        cannot be probed repeatedly by other users.
+        """
         with self._lock:
-            payload = self._cache.get(token)
+            payload = self._cache.pop(token, None)
             if payload is None:
                 return None
             if payload.user_id != user_id:
                 return None
-            self._cache.pop(token, None)
         return payload
 
     def peek(self, token: str) -> T | None:

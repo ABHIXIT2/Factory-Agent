@@ -46,7 +46,9 @@
       "Bash(mv \"c:/Users/Admin/Desktop/Factory Agent/plans/query-list-formatting.md\" \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/query-list-formatting.md\" && ls \"c:/Users/Admin/Desktop/Factory Agent/.claude/plans/\")",
       "PowerShell($pythonPath = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\($pythonPath\\) { $pythonPath } else { \"Python not found in PATH\" })",
       "Read(//c/Users/Admin/.claude/plans/**)",
-      "Bash(Remove-Item -Path \"C:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\database\\\\migrations\" -Recurse -Force)"
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\\\\database\\\\migrations\" -Recurse -Force)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Admin\\\\Desktop\\\\Factory Agent\" -Recurse -Force)",
+      "Bash(Select-Object FullName)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Admin\\Desktop\\Factory Agent\\.claude\\plans"

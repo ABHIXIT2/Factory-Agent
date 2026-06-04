@@ -188,17 +188,23 @@ async def selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except (ValueError, IndexError):
         return
 
-    sel = selection.pop(token, user_id)
-    if sel is None:
+    sel_peek = selection.peek(token)
+    if sel_peek is None:
         expired_msg = render("system", "selection_expired", "hi-Hind")
         await _handle_expired_token(query, context, user_id, expired_msg)
         return
 
-    # Get selected customer
-    if index < 0 or index >= len(sel.customer_options):
-        user_lang = sel.extras.get("user_lang", "hi-Hind")
+    # Validate index before consuming the token so a bad tap can be retried
+    if index < 0 or index >= len(sel_peek.customer_options):
+        user_lang = sel_peek.extras.get("user_lang", "hi-Hind")
         invalid_msg = render("system", "invalid_selection", user_lang)
         await context.bot.send_message(chat_id=user_id, text=invalid_msg)
+        return
+
+    sel = selection.pop(token, user_id)
+    if sel is None:
+        expired_msg = render("system", "selection_expired", "hi-Hind")
+        await _handle_expired_token(query, context, user_id, expired_msg)
         return
 
     selected_customer = sel.customer_options[index]

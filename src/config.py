@@ -2,7 +2,7 @@
 Configuration: env vars, system prompt, tool schemas, runtime constants.
 
 IMPORTANT: Never log GROQ_API_KEY, TELEGRAM_BOT_TOKEN, SUPABASE_URL, or
-SUPABASE_KEY to stdout/files. See SECRETS.md for security practices.
+SUPABASE_KEY to stdout/files. See docs/DEPLOYMENT.md (Secret safety) for details.
 """
 
 import os

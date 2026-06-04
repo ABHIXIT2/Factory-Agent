@@ -206,17 +206,6 @@ async def call_llm(
             day_total = _groq_day.tokens
         _print_usage("groq", chosen_model, p, c, t, day_total, GROQ_DAILY_TOKEN_LIMIT)
 
-    # Cerebras as last resort (skip if quota exceeded)
-    if CEREBRAS_PRIMARY_ENABLED and not _is_cerebras_quota_exceeded():
-        try:
-            logger.info("Cerebras available as fallback")
-            return await _call_cerebras(messages)
-        except openai.RateLimitError:
-            logger.info("Cerebras rate-limited, using Groq response")
-            _warn_rate_limit("cerebras")
-        except (openai.APIError, openai.APIConnectionError) as e:
-            logger.info("Cerebras fallback failed (error: %s), using Groq response", type(e).__name__)
-
     return response
 
 

@@ -367,7 +367,9 @@ async def _get_customer_balance(d: dict[str, Any]) -> str:
     if balance.get("not_found"):
         return _ok(not_found=True)
     return _ok(
-        balance=balance,
+        customer_id=balance.get("id"),
+        outstanding_balance=balance.get("outstanding_balance", 0),
+        credit_limit=balance.get("credit_limit"),
         formatted=format_amount(balance.get("outstanding_balance", 0)),
     )
 

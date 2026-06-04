@@ -497,7 +497,7 @@ async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
     import openai
     from src import providers
 
-    monkeypatch.setattr(providers, "GOOGLE_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(providers, "GOOGLE_PRIMARY_ENABLED", True)
 
     groq_resp = _make_response(content="Groq reply")
 
@@ -512,10 +512,8 @@ async def test_google_rate_limit_falls_back_to_groq(monkeypatch):
     async def raise_rate_limit(*_args, **_kwargs):
         raise _MockRateLimitError()
 
-    from src import providers
     monkeypatch.setattr(providers, "_call_google", raise_rate_limit)
 
-    from src import providers
     with patch("asyncio.to_thread", new=fake_groq):
         result = await providers.call_llm([{"role": "user", "content": "hi"}])
 
@@ -527,12 +525,15 @@ async def test_both_providers_exhausted_raises(monkeypatch):
     import groq as groq_sdk
     from src import providers
 
-    monkeypatch.setattr(providers, "GOOGLE_FALLBACK_ENABLED", False)
+    monkeypatch.setattr(providers, "GOOGLE_PRIMARY_ENABLED", False)
+
+    class _MockGroqRateLimitError(groq_sdk.RateLimitError):
+        def __init__(self):
+            pass
 
     async def raise_rate_limit(*_args, **_kwargs):
-        raise groq_sdk.RateLimitError("mocked rate limit")
+        raise _MockGroqRateLimitError()
 
-    from src import providers
     with patch("asyncio.to_thread", new=raise_rate_limit):
         with pytest.raises(groq_sdk.RateLimitError):
             await providers.call_llm([{"role": "user", "content": "hi"}])

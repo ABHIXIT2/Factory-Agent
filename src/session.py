@@ -213,11 +213,12 @@ def set_history(user_id: int, messages: list[dict[str, Any]]) -> None:
 
 
 def clear_history(user_id: int) -> None:
-    """Clear session history and pending actions for a user."""
+    """Clear session history, pending actions, and pending selections for a user."""
     with _sessions_lock:
         _sessions.pop(user_id, None)
-    from src import pending
+    from src import pending, selection
     pending.clear_user(user_id)
+    selection.clear_user(user_id)
 
 
 def inject_selected_customer(user_id: int, customer_id: int, shop_name: str) -> None:

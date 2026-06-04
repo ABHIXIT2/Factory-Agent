@@ -80,8 +80,11 @@ def log_llm_response(user_id: int, iteration: int, response: Any) -> None:
         for i, tc in enumerate(message.tool_calls, 1):
             logger.debug(f"  [{i}] {tc.function.name}")
             logger.debug(f"      ID: {tc.id}")
-            args = json.loads(tc.function.arguments or "{}")
-            logger.debug(f"      Args: {json.dumps(args, indent=8)}")
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+                logger.debug(f"      Args: {json.dumps(args, indent=8)}")
+            except json.JSONDecodeError:
+                logger.debug(f"      Args (raw): {tc.function.arguments}")
 
     # Log usage if available
     usage = getattr(response, "usage", None)

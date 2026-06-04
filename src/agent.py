@@ -73,7 +73,7 @@ _TOOL_RESULT_KEEP_FIELDS = {
     "create_customer": {"ok", "customer_id", "shop_name"},
     "save_sale": {"ok", "sale_id", "total_bill"},
     "record_payment": {"ok", "ledger_id", "new_balance"},
-    "get_customer_balance": {"ok", "customer_id", "outstanding_balance", "credit_limit", "not_found"},
+    "get_customer_balance": {"ok", "customer_id", "outstanding_balance", "credit_limit", "formatted", "not_found"},
     "get_all_balances": {"ok", "balances"},
     "save_production": {"ok", "id"},
     "save_cash_flow": {"ok", "id"},
