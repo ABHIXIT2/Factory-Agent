@@ -20,6 +20,10 @@ try:
     _RAPIDFUZZ = True
 except ImportError:
     _RAPIDFUZZ = False
+    logging.getLogger(__name__).warning(
+        "rapidfuzz not installed — fuzzy customer de-duplication disabled. "
+        "Multiple close matches will be passed directly to the LLM instead of showing a selection UI."
+    )
 
 from postgrest.exceptions import APIError as _APIError
 
@@ -341,8 +345,9 @@ async def _record_payment(d: dict[str, Any]) -> str:
     amount = validate_positive_number(d.get("amount"), "amount")
     payment_date = validate_iso_date(d.get("payment_date"), "payment_date")
     payment_mode = d.get("payment_mode")
-    if payment_mode is not None:
-        validate_enum(payment_mode, {"cash", "online"}, "payment_mode")
+    if not payment_mode:
+        raise ValueError("payment_mode is required (cash or online)")
+    validate_enum(payment_mode, {"cash", "online"}, "payment_mode")
     original_message = (d.get("original_message") or "").strip()
     if not original_message:
         raise ValueError("original_message is required")

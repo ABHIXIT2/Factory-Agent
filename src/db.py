@@ -18,6 +18,7 @@ from tenacity import (
 
 from src.config import (
     SUPABASE_URL, SUPABASE_KEY, MAX_BALANCES_RETURNED, MAX_SALES_RETURNED,
+    MAX_PRODUCTION_RETURNED,
 )
 
 logger = logging.getLogger(__name__)
@@ -324,8 +325,8 @@ def record_payment(
 ) -> dict[str, Any]:
     """Insert a payment row in credit_ledger + audit_log; returns new balance.
 
-    Note: payment_mode is not persisted on credit_ledger (schema constraint);
-    it's captured in the auto-generated cash_flow row via database trigger.
+    payment_mode is stored on credit_ledger and also forwarded to the auto-generated
+    cash_flow row via database trigger (create_cash_flow_from_payment).
     """
     db = get_db()
     ledger_result = db.table("credit_ledger").insert({
@@ -399,7 +400,7 @@ def save_production(
 def query_production(
     date_from: str | None = None,
     date_to: str | None = None,
-    limit: int = 100,
+    limit: int = MAX_PRODUCTION_RETURNED,
 ) -> list[dict[str, Any]]:
     db = get_db()
     query = db.table("production_log").select("*").eq("is_deleted", False)
@@ -478,7 +479,7 @@ def query_cash_flow(
     if flow_type:
         query = query.eq("flow_type", flow_type)
     if category:
-        query = query.ilike("category", f"%{category}%")
+        query = query.eq("category", category)
     return (query.order("flow_date", desc=True).limit(limit).execute().data) or []
 
 

@@ -157,7 +157,12 @@ def _call_groq_with_retry(messages: list[dict[str, Any]], model: str, temperatur
 async def call_llm(
     messages: list[dict[str, Any]], model: str | None = None
 ) -> Any:
-    """Fallback chain: Gemini → Groq → Cerebras. Cerebras moved to last due to rate-limit issues."""
+    """Fallback chain: Gemini → Groq → Cerebras.
+
+    Gemini is primary when GOOGLE_AI_STUDIO_KEY is set.
+    Groq is always tried next.
+    Cerebras is the last resort when CEREBRAS_API_KEY is set.
+    """
     chosen_model = model or GROQ_MODEL
 
     # Gemini is primary when enabled
@@ -170,8 +175,9 @@ async def call_llm(
         except (openai.APIError, openai.APIConnectionError) as e:
             logger.info("Provider fallback: gemini_api_error → groq (error: %s)", type(e).__name__)
 
-    # Groq: next fallback
+    # Groq: next in chain
     logger.info("Calling Groq with retry logic enabled")
+    groq_exc: BaseException | None = None
     try:
         response = await asyncio.to_thread(
             _call_groq_with_retry,
@@ -180,33 +186,42 @@ async def call_llm(
             GROQ_TEMPERATURE,
         )
     except RetryError as exc:
-        # Unwrap so callers see the underlying RateLimitError (or similar)
         underlying = exc.last_attempt.exception()
-        if underlying is not None:
-            raise underlying from exc
-        raise
+        groq_exc = underlying if underlying is not None else exc
+    except Exception as exc:
+        groq_exc = exc
 
-    finish_reason = getattr(response.choices[0], "finish_reason", None)
-    if finish_reason == "length":
-        logger.warning(
-            "Response truncated by max_tokens=%d for model=%s. "
-            "Consider raising GROQ_MAX_TOKENS.",
-            GROQ_MAX_TOKENS, chosen_model
-        )
+    if groq_exc is None:
+        finish_reason = getattr(response.choices[0], "finish_reason", None)
+        if finish_reason == "length":
+            logger.warning(
+                "Response truncated by max_tokens=%d for model=%s. "
+                "Consider raising GROQ_MAX_TOKENS.",
+                GROQ_MAX_TOKENS, chosen_model
+            )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            p = getattr(usage, "prompt_tokens", 0) or 0
+            c = getattr(usage, "completion_tokens", 0) or 0
+            t = getattr(usage, "total_tokens", 0) or 0
+            with _usage_lock:
+                _reset_if_new_day(_groq_day)
+                _groq_day.tokens += t
+                _groq_day.calls += 1
+                day_total = _groq_day.tokens
+            _print_usage("groq", chosen_model, p, c, t, day_total, GROQ_DAILY_TOKEN_LIMIT)
+        return response
 
-    usage = getattr(response, "usage", None)
-    if usage is not None:
-        p = getattr(usage, "prompt_tokens", 0) or 0
-        c = getattr(usage, "completion_tokens", 0) or 0
-        t = getattr(usage, "total_tokens", 0) or 0
-        with _usage_lock:
-            _reset_if_new_day(_groq_day)
-            _groq_day.tokens += t
-            _groq_day.calls += 1
-            day_total = _groq_day.tokens
-        _print_usage("groq", chosen_model, p, c, t, day_total, GROQ_DAILY_TOKEN_LIMIT)
+    # Groq failed — try Cerebras as last resort
+    logger.info("Provider fallback: groq_error → cerebras (error: %s)", type(groq_exc).__name__)
+    if CEREBRAS_PRIMARY_ENABLED and _cerebras_client is not None:
+        try:
+            return await _call_cerebras(messages)
+        except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
+            logger.error("Provider fallback: cerebras_error → all providers failed (error: %s)", type(e).__name__)
 
-    return response
+    # All providers exhausted — re-raise original Groq error
+    raise groq_exc
 
 
 async def _call_google(messages: list[dict[str, Any]], model: str | None = None):

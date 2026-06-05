@@ -1,6 +1,10 @@
 -- Factory Agent PostgreSQL Schema (Supabase)
 -- Paste all SQL into Supabase SQL editor and run
 
+-- ============================================================
+-- TABLES
+-- ============================================================
+
 -- Users
 CREATE TABLE users (
     user_id BIGINT PRIMARY KEY,
@@ -24,7 +28,6 @@ CREATE TABLE customers (
     deleted_at TIMESTAMPTZ,
     deleted_by BIGINT REFERENCES users(user_id)
 );
-CREATE INDEX idx_customers_normalized ON customers(shop_name_normalized);
 
 -- Sales
 CREATE TABLE sales (
@@ -64,19 +67,6 @@ CREATE TABLE credit_ledger (
     deleted_at TIMESTAMPTZ,
     deleted_by BIGINT REFERENCES users(user_id)
 );
-CREATE INDEX idx_credit_ledger_customer ON credit_ledger(customer_id);
-
--- Customer Balance View (excludes soft-deleted rows)
-CREATE VIEW customer_balance AS
-SELECT
-    c.id,
-    c.shop_name,
-    c.credit_limit,
-    COALESCE(SUM(cl.debit_amount - cl.credit_amount), 0) AS outstanding_balance
-FROM customers c
-LEFT JOIN credit_ledger cl ON c.id = cl.customer_id AND cl.is_deleted = FALSE
-WHERE c.is_deleted = FALSE
-GROUP BY c.id, c.shop_name, c.credit_limit;
 
 -- Production Log
 CREATE TABLE production_log (
@@ -92,7 +82,6 @@ CREATE TABLE production_log (
     deleted_at TIMESTAMPTZ,
     deleted_by BIGINT REFERENCES users(user_id)
 );
-CREATE INDEX idx_production_log_date ON production_log(prod_date);
 
 -- Cash Flow
 CREATE TABLE cash_flow (
@@ -116,16 +105,6 @@ CREATE TABLE cash_flow (
     deleted_at TIMESTAMPTZ,
     deleted_by BIGINT REFERENCES users(user_id)
 );
-CREATE INDEX idx_cash_flow_date ON cash_flow(flow_date);
-
--- Cash Position View
-CREATE VIEW cash_position AS
-SELECT
-    SUM(CASE WHEN flow_type = 'in'  THEN amount ELSE 0 END) AS total_in,
-    SUM(CASE WHEN flow_type = 'out' THEN amount ELSE 0 END) AS total_out,
-    SUM(CASE WHEN flow_type = 'in'  THEN amount ELSE -amount END) AS net_cash
-FROM cash_flow
-WHERE is_deleted = FALSE;
 
 -- Audit Log
 CREATE TABLE audit_log (
@@ -138,15 +117,106 @@ CREATE TABLE audit_log (
     extracted_data JSONB NOT NULL,
     confirmed_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX idx_audit_log_record ON audit_log(table_affected, record_id);
 
--- TRIGGERS: Auto-generate cash flow entries (user doesn't think about them)
+-- ============================================================
+-- FIX 1: ROW LEVEL SECURITY
+-- Blocks all anon/authenticated access. Your bot uses the
+-- service_role key which bypasses RLS, so it is unaffected.
+-- ============================================================
 
--- Helper function for Trigger 1: Paid sale → cash_flow IN
+ALTER TABLE users          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_ledger  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_flow      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log      ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- FIX 2: INDEXES
+-- (a) Keep existing indexes for date/name lookups
+-- (b) Add missing indexes on all foreign key columns
+-- ============================================================
+
+-- Existing indexes (kept)
+CREATE INDEX idx_customers_normalized   ON customers(shop_name_normalized);
+CREATE INDEX idx_credit_ledger_customer ON credit_ledger(customer_id);
+CREATE INDEX idx_production_log_date    ON production_log(prod_date);
+CREATE INDEX idx_cash_flow_date         ON cash_flow(flow_date);
+CREATE INDEX idx_audit_log_record       ON audit_log(table_affected, record_id);
+
+-- customers: missing FK indexes
+CREATE INDEX idx_customers_created_by  ON customers(created_by);
+CREATE INDEX idx_customers_deleted_by  ON customers(deleted_by);
+
+-- sales: missing FK indexes
+CREATE INDEX idx_sales_customer        ON sales(customer_id);
+CREATE INDEX idx_sales_recorded_by     ON sales(recorded_by);
+CREATE INDEX idx_sales_deleted_by      ON sales(deleted_by);
+
+-- credit_ledger: missing FK indexes
+CREATE INDEX idx_credit_ledger_sale        ON credit_ledger(sale_id);
+CREATE INDEX idx_credit_ledger_recorded_by ON credit_ledger(recorded_by);
+CREATE INDEX idx_credit_ledger_deleted_by  ON credit_ledger(deleted_by);
+
+-- production_log: missing FK indexes
+CREATE INDEX idx_production_log_recorded_by ON production_log(recorded_by);
+CREATE INDEX idx_production_log_deleted_by  ON production_log(deleted_by);
+
+-- cash_flow: missing FK indexes
+CREATE INDEX idx_cash_flow_recorded_by ON cash_flow(recorded_by);
+CREATE INDEX idx_cash_flow_deleted_by  ON cash_flow(deleted_by);
+
+-- audit_log: missing FK index
+CREATE INDEX idx_audit_log_user ON audit_log(user_id);
+
+-- ============================================================
+-- FIX 3: VIEWS WITH SECURITY INVOKER
+-- Recreated with security_invoker=true so they respect RLS
+-- on the underlying tables instead of bypassing it.
+-- ============================================================
+
+CREATE VIEW customer_balance
+WITH (security_invoker = true)
+AS
+SELECT
+    c.id,
+    c.shop_name,
+    c.credit_limit,
+    COALESCE(SUM(cl.debit_amount - cl.credit_amount), 0) AS outstanding_balance
+FROM customers c
+LEFT JOIN credit_ledger cl ON c.id = cl.customer_id AND cl.is_deleted = FALSE
+WHERE c.is_deleted = FALSE
+GROUP BY c.id, c.shop_name, c.credit_limit;
+
+CREATE VIEW cash_position
+WITH (security_invoker = true)
+AS
+SELECT
+    SUM(CASE WHEN flow_type = 'in'  THEN amount ELSE 0 END) AS total_in,
+    SUM(CASE WHEN flow_type = 'out' THEN amount ELSE 0 END) AS total_out,
+    SUM(CASE WHEN flow_type = 'in'  THEN amount ELSE -amount END) AS net_cash
+FROM cash_flow
+WHERE is_deleted = FALSE;
+
+-- ============================================================
+-- FIX 4: TRIGGER FUNCTIONS WITH PINNED SEARCH PATH
+-- SET search_path = public prevents schema injection attacks
+-- where a fake "customers" table in another schema could be
+-- substituted for the real one.
+-- ============================================================
+
 CREATE OR REPLACE FUNCTION create_cash_flow_from_paid_sale()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
 BEGIN
-    INSERT INTO cash_flow (flow_date, flow_type, category, description, amount, party, payment_mode, recorded_by, original_message, is_deleted)
+    INSERT INTO cash_flow (
+        flow_date, flow_type, category, description,
+        amount, party, payment_mode, recorded_by,
+        original_message, is_deleted
+    )
     VALUES (
         NEW.sale_date,
         'in',
@@ -161,13 +231,19 @@ BEGIN
     );
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
--- Helper function for Trigger 2: Payment received → cash_flow IN
 CREATE OR REPLACE FUNCTION create_cash_flow_from_payment()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
 BEGIN
-    INSERT INTO cash_flow (flow_date, flow_type, category, description, amount, party, recorded_by, original_message, is_deleted)
+    INSERT INTO cash_flow (
+        flow_date, flow_type, category, description,
+        amount, party, payment_mode, recorded_by,
+        original_message, is_deleted
+    )
     VALUES (
         NEW.transaction_date,
         'in',
@@ -175,13 +251,14 @@ BEGIN
         'Payment from ' || (SELECT shop_name FROM customers WHERE id = NEW.customer_id),
         NEW.credit_amount,
         (SELECT shop_name FROM customers WHERE id = NEW.customer_id),
+        NEW.payment_mode,
         NEW.recorded_by,
         'Auto from credit_ledger_id=' || NEW.id,
         FALSE
     );
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Trigger 1: Paid sale → immediate cash_flow IN entry
 CREATE TRIGGER auto_cash_flow_paid_sale

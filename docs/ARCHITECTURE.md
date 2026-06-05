@@ -165,15 +165,11 @@ chain. **The chain the code actually runs is Gemini → Groq → Cerebras:**
   *transient* per-minute rate limits (per-day limits are not retried —
   [`_is_retryable_rate_limit`](../src/providers.py#L129)).
 - **Cerebras** (`qwen-3-235b-a22b-instruct-2507`) is tried **last**, only if
-  enabled and its daily quota isn't exhausted.
+  `CEREBRAS_API_KEY` is set and Groq has failed.
 
 All three use the OpenAI-compatible `tools` / `tool_choice="auto"` interface.
 Per-call token usage is printed as colored terminal bars (display only — the
 daily limits are **not** enforced).
-
-> Note: the comment in `config/.env.example` describes the chain as
-> "Cerebras → Gemini → Groq". The **code** runs Gemini → Groq → Cerebras
-> (`call_llm`); trust the code.
 
 ---
 

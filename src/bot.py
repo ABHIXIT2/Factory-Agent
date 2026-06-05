@@ -252,8 +252,7 @@ async def confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TY
     action = pending.pop(token, user_id)
 
     if action is None:
-        user_lang = (action.extras or {}).get("user_lang", "hi-Hind") if action else "hi-Hind"
-        expired_msg = render("system", "confirmation_expired", user_lang)
+        expired_msg = render("system", "confirmation_expired", "hi-Hind")
         await _handle_expired_token(query, context, user_id, expired_msg)
         return
 

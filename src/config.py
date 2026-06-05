@@ -57,8 +57,8 @@ if GOOGLE_AI_STUDIO_KEY and GOOGLE_AI_STUDIO_KEY.lower() in ("none", "test", "fa
 GOOGLE_MODEL: str = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
 GOOGLE_PRIMARY_ENABLED: bool = bool(GOOGLE_AI_STUDIO_KEY)
 
-# Cerebras (via OpenAI-compatible endpoint). When set, runs first in the fallback chain:
-# Cerebras → Gemini → Groq.
+# Cerebras (via OpenAI-compatible endpoint). When set, acts as last-resort fallback:
+# Gemini → Groq → Cerebras.
 CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
 if CEREBRAS_API_KEY and CEREBRAS_API_KEY.lower() in ("none", "test", "fake", "placeholder"):
     raise ValueError("CEREBRAS_API_KEY is set to a placeholder. Set a real key or leave empty.")
@@ -240,7 +240,7 @@ TOOLS = [
                     "notes": {"type": "string", "maxLength": 1000},
                     "original_message": {"type": "string", "minLength": 1, "maxLength": 4000},
                 },
-                "required": ["customer_id", "amount", "payment_date", "original_message"],
+                "required": ["customer_id", "amount", "payment_date", "payment_mode", "original_message"],
             },
         },
     },

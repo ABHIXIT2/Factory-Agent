@@ -210,16 +210,9 @@ async def agent_loop(
             log_utils.log_llm_response(user_id, iteration, response)
 
             if not response.choices or not response.choices[0].message:
-                if chosen_model != GROQ_MODEL:
-                    logger.warning(
-                        "Empty response on fast model iter %s — retrying on %s",
-                        iteration, GROQ_MODEL,
-                    )
-                    response = await call_llm(messages, model=GROQ_MODEL)
-                if not response.choices or not response.choices[0].message:
-                    logger.error("Empty response from Groq for user %s", user_id)
-                    user_lang = detect_user_lang(user_message)
-                    return AgentResult(text=render("system", "parse_error", user_lang))
+                logger.error("Empty response from LLM for user %s", user_id)
+                user_lang = detect_user_lang(user_message)
+                return AgentResult(text=render("system", "parse_error", user_lang))
 
             message = response.choices[0].message
 
@@ -291,8 +284,9 @@ async def agent_loop(
                 log_utils.log_confirmation_staged(user_id, summary, tool_call_dicts)
                 confirmation = Confirmation(token=token, summary=summary)
 
-                # Add assistant message to history so next turn sees the full conversation
-                # This keeps the conversation coherent even if user cancels
+                # Save assistant message (with tool_calls) to history now so the conversation
+                # stays coherent even if the user cancels. continue_after_confirmation reloads
+                # this history, so it must NOT append assistant_message again.
                 messages.append(assistant_msg)
                 set_history(user_id, [m for m in messages if m["role"] != "system"])
 
@@ -395,8 +389,10 @@ async def continue_after_confirmation(
 ) -> AgentResult:
     """Execute deferred tool calls and render closing via template (no LLM round-trip)."""
     history = get_history(user_id)
+    # assistant_message is already in history (saved when the confirmation was staged).
+    # Do not append it again — duplicating a message with tool_calls violates the
+    # OpenAI/Groq protocol and causes the subsequent tool results to be unmatched.
     messages: list[dict[str, Any]] = [{"role": "system", "content": get_system_prompt()}, *history]
-    messages.append(action.assistant_message)
 
     extras = action.extras or {}
     user_lang = extras.get("user_lang", "hi-Hind")
